@@ -1,0 +1,487 @@
+---
+title: "Project 0"
+author: "Lu Bai"
+date: "2026-02-04"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(lme4)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(lubridate) # handle clock times
+library(tableone)
+library(flextable)
+library(broom.mixed) # extract estimates of LMM
+library(cowplot)
+```
+
+
+```{r}
+# Readin data from github webpage
+data <- read.csv("https://raw.githubusercontent.com/bail19/BIOS6624/main/Project0/Data/Project0_Clean_v2.csv")
+#data <- read.csv("~/Downloads/Project0_Clean_v2.csv")
+
+# Function to convert clock time string to minutes from start of day
+to_mins <- function(x) {
+  as.numeric(hm(x)) / 60
+}
+
+data <- data %>%
+  mutate(
+    Sleep.Diary.reported.wake.time =
+      na_if(Sleep.Diary.reported.wake.time, "")
+  ) %>%
+  # Ensure wake time is available for all samples of that day/subject
+  group_by(SubjectID, Collection.Date) %>%
+  fill(Sleep.Diary.reported.wake.time, .direction = "downup") %>%
+  ungroup() %>%
+  # Calculate elapsed minutes from wake time
+  mutate(
+    wake_min = to_mins(Sleep.Diary.reported.wake.time),
+    booklet_min = to_mins(Booket..Clock.Time) - wake_min,
+    mems_min = to_mins(MEMs..Clock.Time) - wake_min,
+    diff_min = booklet_min - mems_min
+  )
+```
+
+## Exploratory
+
+```{r}
+# Add number of subjects & number of missing instead of percent of missing
+
+# Prepare the variables for the table
+# We want to summarize times, hormone levels, and the adherence flags created earlier
+vars_to_summarize <- c("booklet_min", "mems_min", "diff_min",
+                       "Cortisol..nmol.L.", "DHEA..nmol.L.")
+# , "within_7.5", "within_15"
+
+# Define which variables are categorical (the adherence flags)
+cat_vars <- c("within_7.5", "within_15")
+
+# Create the table1
+# We stratify by Collection.Sample (1-4) to see how stats change over the day
+table1 <- CreateTableOne(
+  vars = vars_to_summarize, 
+  strata = "Collection.Sample", 
+  data = data, 
+  #factorVars = cat_vars,
+  addOverall = TRUE
+)
+
+# Generate table1 with missing data information
+tab_df <- print(table1, 
+      #formatOptions = list(big.mark = ","), 
+      missing = TRUE, 
+      printToggle = FALSE,
+      #quote = FALSE
+      noSpaces = TRUE) %>%
+  as.data.frame() %>%
+  tibble::rownames_to_column("Variable")
+      
+missing_counts <- data %>%
+  summarise(
+    across(
+      all_of(vars_to_summarize),
+      ~ sum(is.na(.)),
+      .names = "{.col}"
+    )
+  ) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "Variable",
+    values_to = "Missing_n"
+  )
+missing_counts$Variable <- c("booklet_min (mean (SD))", "mems_min (mean (SD))", 
+                             "diff_min (mean (SD))", 
+                             "Cortisol..nmol.L. (mean (SD))","DHEA..nmol.L. (mean (SD))")
+
+tab_df <- tab_df %>%
+  left_join(missing_counts, by = "Variable") %>%
+  select(-test)
+
+# Rename the variable
+tab_df$Variable <- c("N", "Booklet Time in mins, mean (SD)", "Cap Time in mins, mean (SD)",
+                     "Difference Time in mins, mean (SD)", 
+                     "Cortisol(nmol/L), mean (SD)", "DHEA (nmol/L), mean (SD)")
+colnames(tab_df) <- c("Variable", "Overall", 
+                      "Collection Sample 1", "Collection Sample 2", "Collection Sample 3", "Collection Sample 4",
+                      "p-value",
+                      "Rate of Missing (%)", "Number of Missing")
+
+# Render the table
+ft <- flextable(tab_df)
+
+ft <- ft %>%
+  autofit() %>%
+  align(align = "center", part = "all") %>%
+  bold(part = "header") %>%
+  set_caption("Table 1. Descriptive statistics of Sample Timing and Hormone Characteristics by collection sample")
+
+ft
+```
+
+## Question 1
+
+```{r fig1, fig.width=6, fig.height=5, dpi=300, fig.align="center"}
+# Scatter plot
+ggplot(data, aes(x = mems_min,
+                 y = booklet_min)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(intercept = 0, slope = 1, color = "darkblue", linetype = "dashed") +
+  theme(
+    plot.title = element_text(size = 10, face = "bold")
+  ) +
+  labs(title = "Figure 1. Correlation Plot of Agreement: Booklet vs. MEMs Cap Time",
+       x = "MEMs Time from Wake (mins)", y = "Booklet Time from Wake (mins)")
+```
+
+```{r}
+# Linear Mixed Model for Agreement
+# Fixed effect: Cap Time; Random effect: Subject ID
+model_agreement <- lmer(booklet_min ~ mems_min + (1 | SubjectID), 
+                        data = data)
+
+summary(model_agreement)
+
+# Extract fixed-effect results with CI and p-value
+agreement_results <- tidy(
+  model_agreement,
+  effects = "fixed",
+  conf.int = TRUE
+) %>%
+  #filter(term == "mems_min") %>%
+  mutate(
+    term = c("Intercept", "MEMs time since waking (Slope)"),
+    estimate = round(estimate, 3),
+    std.error = round(std.error, 3),
+    conf.low = round(conf.low, 3),
+    conf.high = round(conf.high, 3)
+  ) %>%
+  rename(
+    Predictor = term,
+    Estimate = estimate,
+    SE = std.error,
+    CI_Lower = conf.low,
+    CI_Upper = conf.high
+  )
+
+# Add an interpretation column (bias direction)
+agreement_results <- agreement_results %>%
+  mutate(
+    Interpretation = case_when(
+      Estimate > 1 ~ "Booklet times tend to be later than MEMs times",
+      Estimate < 1 ~ "Booklet times tend to be earlier than MEMs times",
+      TRUE ~ "No systematic bias between booklet and MEMs times"
+    )
+  )
+
+# Create the table
+ft_agreement <- flextable(agreement_results) %>%
+  set_header_labels(
+    Predictor = "Predictor",
+    Estimate = "Estimate",
+    SE = "Standard Error",
+    CI_Lower = "95% CI (Lower)",
+    CI_Upper = "95% CI (Upper)",
+    Interpretation = "Interpretation"
+  ) %>%
+  autofit() %>%
+  bold(part = "header") %>%
+  align(align = "center", part = "all") %>%
+  set_caption(
+    "Table 2. Mixed-effects model assessing agreement between booklet- and cap-recorded time since waking"
+  )
+
+ft_agreement
+```
+
+## Question 2
+
+```{r}
+# Compute adherence by scheduled time
+adherence_stats <- data %>%
+  filter(Collection.Sample %in% c(2, 4)) %>%
+  mutate(
+    Scheduled_Time = ifelse(Collection.Sample == 2,
+                            "30 minutes after waking",
+                            "10 hours after waking"),
+    target_time = ifelse(Collection.Sample == 2, 30, 600),
+    diff = abs(mems_min - target_time),
+    within_7.5 = diff <= 7.5,
+    within_15 = diff <= 15
+  ) %>%
+  group_by(Scheduled_Time) %>%
+  summarise(
+    N_samples = sum(!is.na(diff)),
+    N_samples_7 = sum(within_7.5 == TRUE, na.rm = TRUE),
+    Within_7_percent = round(mean(within_7.5, na.rm = TRUE) * 100, 1),
+    N_samples_15 = sum(within_15 == TRUE, na.rm = TRUE),
+    Within_15_percent  = round(mean(within_15,  na.rm = TRUE) * 100, 1),
+    .groups = "drop"
+  )
+
+# Create flextable
+ft_adherence <- flextable(adherence_stats) %>%
+  set_header_labels(
+    Scheduled_Time = "Scheduled Sampling Time",
+    N_samples = "Number of Samples",
+    N_samples_7 = "Number of Samples within +/- 7.5 min",
+    N_samples_15 = "Number of Samples within +/- 15 min",
+    Within_7_percent = "Within +/- 7.5 minutes (%)",
+    Within_15_percent  = "Within +/- 15 minutes (%)"
+  ) %>%
+  autofit() %>%
+  bold(part = "header") %>%
+  align(align = "center", part = "all") %>%
+  set_caption(
+    "Table 3. Adherence to scheduled saliva sampling times based on MEMs-recorded time since waking"
+  )
+
+ft_adherence
+```
+
+## Question 3
+
+### Data Cleaning
+```{r}
+# Define the detection limit from the protocol
+DHEA_LIMIT <- 5.205
+
+# Identify problematic subjects
+subjects_to_exclude <- data %>%
+  group_by(SubjectID) %>%
+  summarise(
+    total_samples = n(),
+    limit_count = sum(DHEA..nmol.L. >= DHEA_LIMIT, na.rm = TRUE),
+    percent_at_limit = limit_count / total_samples
+  ) %>%
+  # Flag subjects where more than 50% of samples are at the limit
+  filter(percent_at_limit > 0.50) %>%
+  pull(SubjectID)
+
+# Report the excluded subjects to the investigator
+print(paste("Excluding Subject IDs:", paste(subjects_to_exclude, collapse = ", ")))
+
+
+# filtering cortisol and DHEA based on their expected range
+# Cortisol over 80 are likely lab errors and should be excluded.
+# DHEA has an upper detection limit to the assay (5.205).
+data_clean <- data %>%
+  filter(Cortisol..nmol.L. <= 80) %>%
+  filter(DHEA..nmol.L. < 5.205)
+
+# Create piecewise variables
+# time1: slope from 0 to 30 mins
+# time2: slope after 30 mins
+data_clean <- data_clean %>%
+  mutate(
+    time = mems_min,
+    time_up = ifelse(time <= 30, time, 30),
+    time_down = ifelse(time <= 30, 0, time - 30)
+  )
+```
+
+
+# Exploratory
+
+```{r fig2, fig.width=6, fig.height=5, dpi=300, fig.align="center"}
+# Density plot for Raw Cortisol
+p1 <- ggplot(data_clean, aes(x = Cortisol..nmol.L.)) +
+  geom_density(fill = "steelblue", alpha = 0.6) +
+  theme_minimal() +
+  labs(title = "Cortisol Distribution", x = "Cortisol (nmol/L)")
+
+# Density plot for Raw DHEA
+p2 <- ggplot(data_clean, aes(x = DHEA..nmol.L.)) +
+  geom_density(fill = "darkgreen", alpha = 0.6) +
+  theme_minimal() +
+  labs(title = "DHEA Distribution", x = "DHEA (nmol/L)")
+
+p <- plot_grid(p1, p2, ncol = 2, labels=c('A', 'B'))
+title <- ggdraw() + draw_label("Figure 2. Density Plots of Cortisol and DHEA Outcomes", fontface='bold', size = 10)
+plot_grid(title, p, ncol=1, rel_heights=c(0.1, 1)) # Adjust rel_heights
+```
+
+### Model fitting
+
+```{r}
+# Fit the log-transformed model
+# Model for Cortisol
+model_cortisol <- lmer(log(Cortisol..nmol.L.) ~ time_up + time_down + (1 | SubjectID), 
+                       data = data_clean)
+
+# Model for DHEA
+model_dhea <- lmer(log(DHEA..nmol.L.) ~ time_up + time_down + (1 | SubjectID), 
+                   data = data_clean)
+
+summary(model_cortisol)
+summary(model_dhea)
+```
+
+```{r}
+# Extract results and build one combined table
+extract_piecewise <- function(model, hormone_name) {
+  tidy(model, effects = "fixed", conf.int = TRUE) %>%
+    filter(term %in% c("(Intercept)","time_up", "time_down")) %>%
+    mutate(
+      Hormone = hormone_name,
+      Term = recode(
+        term,
+        `(Intercept)` = "Baseline level at waking",
+        time_up   = "Increase from waking to 30 min",
+        time_down = "Decline after 30 min"
+      ),
+      ## ---- log-scale results ----
+      Estimate = round(estimate, 3),
+      SE = round(std.error, 3),
+      CI = paste0(
+        round(conf.low, 3), ", ",
+        round(conf.high, 3)
+      ),
+      ## ---- original-scale (exp) results ----
+      Estimate_original = round(exp(estimate), 3),
+      
+      # Delta-method approximation for SE on original scale
+      SE_original = round(exp(estimate) * std.error, 3),
+
+      CI_original = paste0(
+        round(exp(conf.low), 3), ", ",
+        round(exp(conf.high), 3)
+      )
+    ) %>%
+    select(Hormone, Term, 
+           Estimate, SE, CI,
+           Estimate_original, SE_original, CI_original)
+}
+
+results_table <- bind_rows(
+  extract_piecewise(model_cortisol, "Cortisol"),
+  extract_piecewise(model_dhea, "DHEA")
+)
+
+# Create tables
+ft_piecewise <- flextable(results_table) %>%
+  set_header_labels(
+    Hormone = "Hormone",
+    Term = "Time Component",
+    Estimate = "Estimate (log scale)",
+    SE = "Standard Error (log scale)",
+    CI = "95% Confidence Interval (log scale)",
+    Estimate_original = "Estimate (original scale)", 
+    SE_original = "Standard Error (original scale)", 
+    CI_original = "95% Confidence Interval (original scale)"
+  ) %>%
+  autofit() %>%
+  bold(part = "header") %>%
+  align(align = "center", part = "all") %>%
+  set_caption(
+    "Table 4. Mixed-effects models of diurnal cortisol and DHEA patterns using piecewise linear time since waking"
+  )
+
+ft_piecewise
+```
+
+### Spaghetti plots
+
+```{r fig3, fig.width=6, fig.height=5, dpi=300, fig.align="center"}
+# plot population-level fitted curves over individual trajectories
+pred_grid <- data_clean %>%
+  distinct(time_since_wake = mems_min) %>%
+  arrange(time_since_wake) %>%
+  mutate(
+    time_up = pmin(time_since_wake, 30),
+    time_down = pmax(time_since_wake - 30, 0)
+  )
+
+pred_grid$cortisol_fit <- exp(
+  predict(model_cortisol, newdata = pred_grid, re.form = NA)
+)
+
+pred_grid$dhea_fit <- exp(
+  predict(model_dhea, newdata = pred_grid, re.form = NA)
+)
+
+# Cortisol spaghetti + fitted curve
+p_cortisol <- ggplot(data_clean,
+                     aes(x = mems_min, y = Cortisol..nmol.L.,
+                         group = SubjectID)) +
+  geom_line(alpha = 0.3, color = "grey50") +
+  geom_line(data = pred_grid,
+            aes(x = time_since_wake, y = cortisol_fit),
+            inherit.aes = FALSE,
+            color = "darkred", linewidth = 1.2) +
+  theme_minimal() +
+  labs(
+    title = "Diurnal Cortisol Pattern",
+    x = "Minutes since waking",
+    y = "Cortisol (nmol/L)"
+  )
+
+# DHEA spaghetti + fitted curve
+p_dhea <- ggplot(data_clean,
+                 aes(x = mems_min, y = DHEA..nmol.L.,
+                     group = SubjectID)) +
+  geom_line(alpha = 0.3, color = "grey50") +
+  geom_line(data = pred_grid,
+            aes(x = time_since_wake, y = dhea_fit),
+            inherit.aes = FALSE,
+            color = "darkblue", linewidth = 1.2) +
+  theme_minimal() +
+  labs(
+    title = "Diurnal DHEA Pattern",
+    x = "Minutes since waking",
+    y = "DHEA (nmol/L)"
+  )
+
+# Combine plots
+p_combine <- plot_grid(p_cortisol, p_dhea, ncol = 2, labels=c('A', 'B'))
+title <- ggdraw() + draw_label("Figure 3. Diurnal Cortisol and DHEA Pattern", fontface='bold')
+plot_grid(title, p_combine, ncol=1, rel_heights=c(0.1, 1)) # Adjust rel_heights
+
+```
+
+### Diagonostic
+
+```{r fig4, fig.width=6, fig.height=5, dpi=300, fig.align="center"}
+# Extract residuals and fitted values
+diag_cortisol <- data.frame(
+  Fitted = fitted(model_cortisol),
+  Residuals = resid(model_cortisol, type = "pearson")
+)
+
+# Residuals vs Fitted Plot of Cortisol
+diag_plot_cortisol <- ggplot(diag_cortisol, aes(x = Fitted, y = Residuals)) +
+  geom_point(alpha = 0.4) +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  geom_smooth(method = "loess", color = "darkblue", se = FALSE) +
+  theme_minimal() +
+  labs(title = "Cortisol", subtitle = "Check for non-linearity and heteroscedasticity")
+
+# Residuals vs Fitted Plot of DHEA
+diag_DHEA <- data.frame(
+  Fitted = fitted(model_dhea),
+  Residuals = resid(model_dhea, type = "pearson")
+)
+
+diag_plot_DHEA <- ggplot(diag_DHEA, aes(x = Fitted, y = Residuals)) +
+  geom_point(alpha = 0.4) +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  geom_smooth(method = "loess", color = "darkblue", se = FALSE) +
+  theme_minimal() +
+  labs(title = "DHEA", subtitle = " ")
+
+# Combine plots
+diag_combine <- plot_grid(diag_plot_cortisol, diag_plot_DHEA, ncol = 2, labels=c('A', 'B'))
+title <- ggdraw() + draw_label("Figure 4. Residuals vs. Fitted for Cortisol and DHEA", fontface='bold', size = 10)
+plot_grid(title, diag_combine, ncol=1, rel_heights=c(0.1, 1)) # Adjust rel_heights
+```
+
+\pagebreak
+
+## Code Appendix
+
+```{r ref.label=knitr::all_labels(appendix == TRUE), echo=TRUE, eval=FALSE, include=TRUE}
+```
