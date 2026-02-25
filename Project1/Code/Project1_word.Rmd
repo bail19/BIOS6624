@@ -1,0 +1,230 @@
+---
+title: "Project 1"
+author: "Lu Bai"
+date: "2026-02-25"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyr)
+library(dplyr)
+library(bayesplot)
+library(posterior)
+library(bayestestR)
+library(mcmcse)
+library(loo)
+library(ggplot2)
+library(tableone)
+library(cowplot)
+library(flextable)
+```
+
+# Data Preparation
+```{r}
+# Read in data
+hiv_data <- read.csv("~/Downloads/hiv_6624_final.csv")
+hiv_data$log_vload <- log10(hiv_data$VLOAD)
+
+hiv_clean <- hiv_data %>%
+  # Handle missing/improbable values
+  mutate(
+    log_vload = ifelse(log_vload < 0.5, NA, log_vload),
+    BMI = ifelse(BMI > 90 | BMI < 0, NA, BMI),
+    AGG_MENT = ifelse(AGG_MENT < 2, NA, AGG_MENT),
+    AGG_PHYS = ifelse(AGG_PHYS < 2, NA, AGG_PHYS),
+    LEU3N = ifelse(LEU3N < 50, NA, LEU3N),
+    RACE = factor(
+      ifelse(RACE %in% c(2,3,4,7,8), 0, RACE),
+      levels = c(0,1),
+      labels = c("Other", "Non-hispanic White")),
+    EDUCBAS = factor(
+      ifelse(EDUCBAS %in% c(1,2,3,4), 0, 1),
+      levels = c(0,1),
+      labels = c("Not finish college and lower", "College degree and higher")
+  ))
+```
+
+```{r}
+# -------------------------
+# Baseline (Year 0)
+# -------------------------
+baseline <- hiv_clean %>%
+  filter(years == 0) %>%
+  select(newid,
+         hard_drugs,   # baseline exposure
+         age, # baseline age
+         BMI,
+         RACE,
+         EDUCBAS,
+         SMOKE,
+         log_vload,
+         LEU3N,
+         AGG_PHYS,
+         AGG_MENT) %>%
+  distinct(newid, .keep_all = TRUE)
+
+# -------------------------
+# Year 2 Outcomes
+# -------------------------
+year2 <- hiv_clean %>%
+  filter(years == 2) %>%
+  select(newid,
+         ADH,
+         log_vload,
+         LEU3N,
+         AGG_PHYS,
+         AGG_MENT) %>%
+  distinct(newid, .keep_all = TRUE)
+
+# -------------------------
+# Merge
+# -------------------------
+hiv_merge <- baseline %>%
+  inner_join(year2, by = "newid")
+```
+
+# Descriptive Table 
+
+```{r}
+vars <- c("age", "BMI", "RACE", "EDUCBAS", "SMOKE", "ADH",
+          "log_vload.x", "LEU3N.x", "AGG_PHYS.x", "AGG_MENT.x",
+          "log_vload.y", "LEU3N.y", "AGG_PHYS.y", "AGG_MENT.y" )
+
+# Define categorical variables
+factorVars <- c("RACE", "EDUCBAS",
+                "SMOKE", "ADH")
+
+# Create the table1
+# We stratify by Drug use
+table1 <- CreateTableOne(
+  vars = vars,
+  strata = "hard_drugs",
+  data = hiv_merge,
+  factorVars = factorVars,
+  addOverall = TRUE
+)
+
+#print(table1, showAllLevels = TRUE)
+
+# Generate table1 with missing data information
+tab_df <- print(table1, 
+      missing = TRUE, 
+      printToggle = FALSE,
+      noSpaces = TRUE) %>%
+  as.data.frame() %>%
+  tibble::rownames_to_column("Variable") %>%
+  select(-c(test,p))
+  
+# Rename the variable
+tab_df$Variable <- c("N", "Age at visit, mean (SD)", "BMI, mean (SD)",
+                     "Race = White, non-Hispanic, n(%)",
+                     
+                     "Baseline Education = College degree and higher, n(%)",
+                     
+                     "Smoking Status, n(%)", "  Never smoked", "  Former smoker", "  Current smoker",
+                     
+                     "Adherence to meds taken, n(%)", "  100%", "  95-99%", "  75-94%", "  <75%",
+
+                     "Baseline Log10 viral load (copies/ml), mean (SD)", 
+                     "Baseline number of CD4 positive cells, mean (SD)",
+                     "Baseline aggregate physical QOL score, mean (SD)", 
+                     "Baseline aggregate mental QOL score, mean (SD)",
+                     
+                     "Year 2 Log10 viral load (copies/ml), mean (SD)", 
+                     "Year 2 number of CD4 positive cells, mean (SD)",
+                     "Year 2 aggregate physical QOL score, mean (SD)", 
+                     "Year 2 aggregate mental QOL score, mean (SD)"
+                     )
+
+colnames(tab_df) <- c("Variable", "Overall", 
+                      "No hard drug use", "Hard drug used",
+                      "Rate of Missing (%)")
+
+# Render the table
+ft <- flextable(tab_df)
+
+ft <- ft %>%
+  autofit() %>%
+  align(j = 2:5, align = "center", part = "body") %>%
+  align(j = 1, align = "left", part = c("body")
+) %>%
+  bold(part = "header") %>%
+  set_caption("Table 1. Descriptive statistics of baseline demographic characteristics and treatment response at year 2 by hard drug use")
+
+ft
+```
+
+# Distribution of outcomes
+
+```{r}
+# Viral load
+p_vload <- ggplot(hiv_clean, aes(x = VLOAD)) +
+  geom_density(fill = "steelblue", alpha = 0.6) +
+  theme_minimal(base_size = 10) +
+
+  labs(title = "Distribution of Viral Load (Raw)",
+       x = "Viral Load",
+       y = "Density")
+
+p_logv <- ggplot(hiv_merge, aes(x = log_vload.y)) +
+  geom_density(fill = "steelblue", alpha = 0.6) +
+  theme_minimal(base_size = 10) +
+  labs(title = "Distribution of Viral Load (log scale)",
+       x = "log(Viral Load)",
+       y = "Density")
+
+# CD4 count
+p_cd4 <- ggplot(hiv_merge, aes(x = LEU3N.y)) +
+  geom_density(fill = "darkgreen", alpha = 0.6) +
+  theme_minimal(base_size = 10) +
+  labs(title = "Distribution of CD4 Count",
+       x = "CD4 Count",
+       y = "Density")
+
+p_phys <- ggplot(hiv_merge, aes(x = AGG_PHYS.y)) +
+  geom_histogram(bins = 30, fill = "orange", alpha = 0.7) +
+  theme_minimal(base_size = 9) +
+  labs(title = "Physical quality of life(QOL) score Distribution",
+       x = "SF36 PCS score",
+       y = "Count")
+
+p_ment <- ggplot(hiv_merge, aes(x = AGG_MENT.y)) +
+  geom_histogram(bins = 30, fill = "darkred", alpha = 0.7) +
+  theme_minimal(base_size = 10) +
+  labs(title = "Mental QOL Distribution",
+       x = "SF36 MCS score",
+       y = "Count")
+
+# Combine plots
+p_combine <- plot_grid(p_vload, p_logv, p_cd4, p_phys, p_ment, ncol = 2, labels=c('A1', 'A2', 'B', 'C', 'D'))
+title <- ggdraw() + draw_label("Figure 1. Density Plots of Outcomes", fontface='bold')
+plot_grid(title, p_combine, ncol=1, rel_heights=c(0.1, 1)) # Adjust rel_heights
+```
+
+# Non-Bayesian Modeling
+
+## Data Management
+```{r}
+hiv_merge <- hiv_merge %>%
+  mutate(
+    SMOKE = factor(
+      ifelse(SMOKE %in% c(1,2), 0, 1),
+      levels = c(0,1),
+      labels = c("Not current smoker", "Current smoker")),
+    ADH = factor(
+      ifelse(ADH %in% c(2,3,4), 0, 1),
+      levels = c(0,1),
+      labels = c("<100%", "100%")
+  )) %>%
+  filter(
+    !if_any(ends_with(".y"), is.na)
+  )
+```
+
+\pagebreak
+
+## Code Appendix
+
+```{r ref.label=knitr::all_labels(appendix == TRUE), echo=TRUE, eval=FALSE, include=TRUE}
+```
