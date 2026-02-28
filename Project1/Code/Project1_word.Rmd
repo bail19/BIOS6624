@@ -9,17 +9,23 @@ output: word_document
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyr)
 library(dplyr)
+
 library(bayesplot)
+library(ggplot2)
+library(gridExtra)
+library(cowplot)
+
 library(posterior)
 library(bayestestR)
 library(mcmcse)
 library(loo)
-library(ggplot2)
+
 library(tableone)
-library(cowplot)
 library(flextable)
+
 library(broom)
 library(extras) # exp10()
+library(brms)
 ```
 
 # Data Preparation
@@ -299,6 +305,156 @@ ft_freq <- ft_freq %>%
   align(align = "center", part = "all")
 
 ft_freq
+```
+
+# Bayesian Modeling
+
+```{r}
+# BAYESIAN MODELS
+# ---------------------------------------------------------
+# brms uses Stan for MCMC sampling
+
+## Viral load
+bayes_vload <- brm(
+  formula = log_vload.y ~ hard_drugs + log_vload.x + 
+                       age + BMI + RACE + EDUCBAS + SMOKE,
+  data = hiv_merge,
+  family = gaussian(),
+  prior = c(
+    prior(normal(0, 10000), class = "b"),      # Coefficients
+    prior(normal(0, 10000), class = "sigma", lb = 0)    # Error term
+  ),
+  chains = 4, iter = 10000, warmup = 2000, core = 4, seed = 123
+)
+
+## CD4 count
+bayes_CD4 <- brm(
+  formula = LEU3N.y ~ hard_drugs + LEU3N.x + 
+                       age + BMI + RACE + EDUCBAS + SMOKE,
+  data = hiv_merge,
+  family = gaussian(),
+  prior = c(
+    prior(normal(0, 10000), class = "b"),      # Coefficients
+    prior(normal(0, 10000), class = "sigma", lb = 0)    # Error term
+  ),
+  chains = 4, iter = 10000, warmup = 2000, core = 4, seed = 123
+)
+
+## Physical QOL
+bayes_phys <- brm(
+  formula = AGG_PHYS.y ~ hard_drugs + AGG_PHYS.x + 
+                       age + BMI + RACE + EDUCBAS + SMOKE,
+  data = hiv_merge,
+  family = gaussian(),
+  prior = c(
+    prior(normal(0, 10000), class = "b"),      # Coefficients
+    prior(normal(0, 10000), class = "sigma", lb = 0)    # Error term
+  ),
+  chains = 4, iter = 10000, warmup = 2000, core = 4, seed = 123
+)
+
+## Mental QOL
+bayes_ment <- brm(
+  formula = AGG_MENT.y ~ hard_drugs + AGG_MENT.x + 
+                       age + BMI + RACE + EDUCBAS + SMOKE,
+  data = hiv_merge,
+  family = gaussian(),
+  prior = c(
+    prior(normal(0, 10000), class = "b"),      # Coefficients
+    prior(normal(0, 10000), class = "sigma", lb = 0)    # Error term
+  ),
+  chains = 4, iter = 10000, warmup = 2000, core = 4, seed = 123
+)
+```
+
+```{r}
+extract_bayes_results <- function(model, outcome_name, 
+                                  direction = "positive",
+                                  clinically_meaningful = 0, exp = FALSE) {
+  
+  # Get posterior samples for probability calculations
+  draws <- as_draws_df(model)
+  beta <- draws$b_hard_drugs
+  
+  # Posterior summary for hard_drugs
+  summ <- as.data.frame(posterior_summary(model, variable = "b_hard_drugs"))
+  
+  # 95% HPDI (Highest Posterior Density Interval)
+  hpdi_95 <- bayestestR::hdi(beta, .ci = 0.95)
+  
+  # Handle Back-transformation if the outcome was log10-transformed
+  # Transform the Mean, and the Confidence Intervals
+  if (exp == TRUE) {
+    summ <- summ %>%
+      mutate(
+        Estimate = exp10(Estimate))
+    
+    hpdi_95$CI_low <- 10^as.numeric(hpdi_95$CI_low)
+    hpdi_95$CI_high <- 10^as.numeric(hpdi_95$CI_high)
+  }
+  
+  # Probability of Direction (pd)
+  pd <- max(mean(beta > 0), mean(beta < 0))
+  
+  # Probability in expected direction
+  if(direction == "positive"){
+    prob_clinical  <- mean(beta > clinically_meaningful)
+  } else {
+    prob_clinical  <- mean(beta < -clinically_meaningful)
+  }
+  
+  tibble(
+    Outcome = outcome_name,
+    Estimate = round(summ$Estimate, 3),
+    SD = round(summ$Est.Error, 3),
+    CI_Lower = round(hpdi_95$CI_low, 3),
+    CI_Upper = round(hpdi_95$CI_high, 3),
+    pd = round(pd, 3),
+    Prob_Clin_Meaningful = round(prob_clinical, 3)
+  )
+}
+
+bayes_results_table <- bind_rows(
+  
+  # Viral load: harm = increase
+  # clinically_meaningful stays in 0.2 log units is approx a 1.58x increase)
+  extract_bayes_results(bayes_vload, "Viral Load (Exp10)",
+                        direction = "positive",
+                        clinically_meaningful = 0.2,
+                        exp = TRUE),
+  
+  # CD4: harm = decrease
+  extract_bayes_results(bayes_CD4, "CD4 Count",
+                        direction = "negative",
+                        clinically_meaningful = 50),
+  
+  # Physical QOL: harm = decrease
+  extract_bayes_results(bayes_phys, "Physical QOL",
+                        direction = "negative",
+                        clinically_meaningful = 2),
+  
+  # Mental QOL: harm = decrease
+  extract_bayes_results(bayes_ment, "Mental QOL",
+                        direction = "negative",
+                        clinically_meaningful = 2)
+)
+
+# Render with Flextable
+ft_bayes <- flextable(bayes_results_table) %>%
+  set_header_labels(
+    Outcome = "Outcome",
+    Estimate = "Estimate",
+    SD = "Posterior SD",
+    CI_Lower = "2.5% HDPI",
+    CI_Upper = "97.5% HDPI",
+    pd = "p value",
+    Prob_Clin_Meaningful = "Pr(Clinically Meaningful Harm)"
+  ) %>%
+  set_caption("Table 3. Bayesian Estimates and Posterior Probabilities of Harm from Hard Drug Use Across Treatment Outcomes") %>%
+  theme_booktabs() %>%
+  autofit()
+
+ft_bayes
 ```
 
 \pagebreak
