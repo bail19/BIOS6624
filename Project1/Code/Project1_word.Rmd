@@ -18,6 +18,8 @@ library(ggplot2)
 library(tableone)
 library(cowplot)
 library(flextable)
+library(broom)
+library(extras) # exp10()
 ```
 
 # Data Preparation
@@ -220,6 +222,83 @@ hiv_merge <- hiv_merge %>%
   filter(
     !if_any(ends_with(".y"), is.na)
   )
+```
+
+## Fit non-Bayesian models
+```{r}
+# linear models
+# ---------------------------------------------------------
+freq_vload <- lm(log_vload.y ~ hard_drugs + log_vload.x + 
+                       age + BMI + RACE + EDUCBAS + SMOKE, 
+                       data = hiv_merge)
+
+freq_CD4 <- lm(LEU3N.y ~ hard_drugs + LEU3N.x + 
+                       age + BMI + RACE + EDUCBAS + SMOKE, 
+                       data = hiv_merge)
+
+freq_phys <- lm(AGG_PHYS.y ~ hard_drugs + AGG_PHYS.x + 
+                       age + BMI + RACE + EDUCBAS + SMOKE, 
+                       data = hiv_merge)
+
+freq_ment <- lm(AGG_MENT.y ~ hard_drugs + AGG_MENT.x + 
+                       age + BMI + RACE + EDUCBAS + SMOKE, 
+                       data = hiv_merge)
+
+# summary(freq_vload)
+# summary(freq_CD4)
+# summary(freq_phys)
+# summary(freq_ment)
+
+```
+
+```{r}
+# Extract results
+extract_results <- function(model, outcome, exp = FALSE) {
+
+  tidy_model <- tidy(model, conf.int = TRUE)
+
+  hard_row <- tidy_model %>%
+    filter(term == "hard_drugs")
+
+  if (exp == TRUE) {
+    hard_row <- hard_row %>%
+      mutate(
+        estimate = exp10(estimate),
+        conf.low = exp10(conf.low),
+        conf.high = exp10(conf.high)
+      )
+  }
+
+  hard_row %>%
+    transmute(
+      Outcome = outcome,
+      Estimate = round(estimate,3),
+      SD = round(std.error,3),
+      `95% CI` = paste0("(", round(conf.low, 3), ", ",
+                  round(conf.high, 3), ")"),
+      `p value` = round(p.value,3)
+    )
+}
+
+# Combine into one table
+results_table <- bind_rows(
+  extract_results(freq_vload, "Viral Load (Exp10)", exp = TRUE),
+  extract_results(freq_CD4, "CD4 Count"),
+  extract_results(freq_phys, "Physical QOL"),
+  extract_results(freq_ment, "Mental QOL")
+)
+
+# Create flextable
+ft_freq <- flextable(results_table)
+
+ft_freq <- ft_freq %>%
+  set_caption("Table 2. Adjusted Estimates of Baseline Hard Drug Use on Year 2 Treatment Responses") %>%
+  colformat_num(j = c("Estimate", "SD"), digits = 3) %>%
+  autofit() %>%
+  theme_booktabs() %>%
+  align(align = "center", part = "all")
+
+ft_freq
 ```
 
 \pagebreak
