@@ -457,6 +457,107 @@ ft_bayes <- flextable(bayes_results_table) %>%
 ft_bayes
 ```
 
+# Diagnostics
+
+## Figures
+
+```{r}
+# DIAGNOSTICS & COMPARISON
+# ---------------------------------------------------------
+# Define a function to create a combined diagnostic row for a single model
+get_diagnostic_row <- function(model, label) {
+  draws <- as_draws_array(model)
+  params <- c("b_hard_drugs", "sigma")
+  
+  # 1. Trace Plot: inspect chains' mixing and stationary: chains overlapping, no trends, good mixing
+  p1 <- mcmc_trace(draws, pars = params) + 
+    ggtitle(paste(label, ": Trace")) + 
+    theme(plot.title = element_text(size = 8, face = "bold"), # Title size
+    axis.title = element_text(size = 8),               # X and Y label size
+    axis.text = element_text(size = 8),                # X and Y tick labels
+    legend.position = "none")
+  
+  # 2. Autocorrelation (ACF) Plots: drops quickly toward 0
+  p2 <- mcmc_acf(draws, pars = params) + 
+    ggtitle(paste(label, ": ACF")) +
+    theme(plot.title = element_text(size = 8, face = "bold"), # Title size
+    axis.title = element_text(size = 5),               # X and Y label size
+    axis.text = element_text(size = 5),                # X and Y tick labels
+    legend.position = "none")
+  
+  # 3. Posterior Density plots: all chains densities overlap closely
+  p3 <- mcmc_dens_overlay(draws, pars = params) + 
+    ggtitle(paste(label, ": Posterior Density")) + 
+    theme(plot.title = element_text(size = 8, face = "bold"), # Title size
+    axis.title = element_text(size = 8),               # X and Y label size
+    axis.text = element_text(size = 8),
+    legend.position = "none")
+  
+  # Combine into a horizontal row
+  return(grid.arrange(p1, p2, p3, nrow = 1))
+}
+
+# Generate rows for each outcome
+row_vload <- get_diagnostic_row(bayes_vload, "Viral Load")
+row_cd4   <- get_diagnostic_row(bayes_CD4,   "CD4 Count")
+row_phys  <- get_diagnostic_row(bayes_phys,  "Physical QOL")
+row_ment  <- get_diagnostic_row(bayes_ment,  "Mental QOL")
+
+# Combine all rows into one large vertical plot
+combined_diagnostics <- grid.arrange(
+  row_vload, row_cd4, row_phys, row_ment, 
+  ncol = 1,
+  top = grid::textGrob("MCMC Diagnostics Across All Treatment Outcomes\n", 
+                       gp = grid::gpar(fontsize = 12, fontface = "bold")),
+  bottom = grid::textGrob("Figure 2: Assessing chain convergence (Trace), independence (ACF), and posterior consistency (Density)", 
+                          gp = grid::gpar(fontsize = 12, fontitalic = TRUE))
+)
+```
+
+
+## Tables
+
+```{r}
+get_mcmc_summary <- function(model, outcome_name) {
+  # Extract diagnostic fixed effects for 'hard_drugs'
+  s <- summarise_draws(as_draws_df(model))
+  
+  diag <- rhat(model)[ "b_hard_drugs" ]
+  ess_b <- s$ess_bulk[s$variable == "b_hard_drugs"]
+  ess_t <- s$ess_tail[s$variable == "b_hard_drugs"]
+  
+  tibble(
+    Outcome = outcome_name,
+    Parameter = "Hard Drug Use",
+    Rhat = round(diag, 3),
+    ESS_Bulk = round(ess_b, 0),
+    ESS_Tail = round(ess_t, 0)
+  )
+}
+
+# Create the diagnostic table
+mcmc_summary_table <- bind_rows(
+  get_mcmc_summary(bayes_vload, "Viral Load"),
+  get_mcmc_summary(bayes_CD4, "CD4 Count"),
+  get_mcmc_summary(bayes_phys, "Physical QOL"),
+  get_mcmc_summary(bayes_ment, "Mental QOL")
+)
+
+# Render with Flextable
+ft_mcmc <- flextable(mcmc_summary_table) %>%
+  set_header_labels(
+    Rhat = "R-hat",
+    ESS_Bulk = "Bulk ESS",
+    ESS_Tail = "Tail ESS"
+  ) %>%
+  set_caption("Table 4: MCMC Convergence Diagnostics for Primary Predictor") %>%
+  autofit() %>%
+  theme_booktabs()
+  
+
+ft_mcmc
+```
+
 \pagebreak
 
 ## Code Appendix
