@@ -28,6 +28,7 @@ library(extras) # exp10()
 library(brms)
 ```
 
+
 # Data Preparation
 ```{r}
 # Read in data
@@ -113,8 +114,6 @@ table1 <- CreateTableOne(
   addOverall = TRUE
 )
 
-#print(table1, showAllLevels = TRUE)
-
 # Generate table1 with missing data information
 tab_df <- print(table1, 
       missing = TRUE, 
@@ -170,7 +169,6 @@ ft
 p_vload <- ggplot(hiv_clean, aes(x = VLOAD)) +
   geom_density(fill = "steelblue", alpha = 0.6) +
   theme_minimal(base_size = 10) +
-
   labs(title = "Distribution of Viral Load (Raw)",
        x = "Viral Load",
        y = "Density")
@@ -208,6 +206,7 @@ p_ment <- ggplot(hiv_merge, aes(x = AGG_MENT.y)) +
 p_combine <- plot_grid(p_vload, p_logv, p_cd4, p_phys, p_ment, ncol = 2, labels=c('A1', 'A2', 'B', 'C', 'D'))
 title <- ggdraw() + draw_label("Figure 1. Density Plots of Outcomes", fontface='bold')
 plot_grid(title, p_combine, ncol=1, rel_heights=c(0.1, 1)) # Adjust rel_heights
+
 ```
 
 # Non-Bayesian Modeling
@@ -249,12 +248,6 @@ freq_phys <- lm(AGG_PHYS.y ~ hard_drugs + AGG_PHYS.x +
 freq_ment <- lm(AGG_MENT.y ~ hard_drugs + AGG_MENT.x + 
                        age + BMI + RACE + EDUCBAS + SMOKE, 
                        data = hiv_merge)
-
-# summary(freq_vload)
-# summary(freq_CD4)
-# summary(freq_phys)
-# summary(freq_ment)
-
 ```
 
 ```{r}
@@ -557,6 +550,179 @@ ft_mcmc <- flextable(mcmc_summary_table) %>%
 
 ft_mcmc
 ```
+
+# Assess adherence 
+
+```{r}
+# FREQUENTIST MEDIATION CHECK
+# Model adjusting for adherence
+# ---------------------------------------------------------
+adh_vload <- lm(log_vload.y ~ ADH + hard_drugs + log_vload.x + 
+                       age + BMI + RACE + EDUCBAS + SMOKE, 
+                       data = hiv_merge)
+
+adh_CD4 <- lm(LEU3N.y ~ ADH + hard_drugs + LEU3N.x + 
+                       age + BMI + RACE + EDUCBAS + SMOKE, 
+                       data = hiv_merge)
+
+adh_phys <- lm(AGG_PHYS.y ~ ADH + hard_drugs + AGG_PHYS.x + 
+                       age + BMI + RACE + EDUCBAS + SMOKE, 
+                       data = hiv_merge)
+
+adh_ment <- lm(AGG_MENT.y ~ ADH + hard_drugs + AGG_MENT.x + 
+                       age + BMI + RACE + EDUCBAS + SMOKE, 
+                       data = hiv_merge)
+
+# BAYESIAN MEDIATION MODEL
+# We model both the adherence and the viral load simultaneously
+# ---------------------------------------------------------
+## Viral load
+adh_bayes_vload <- brm(
+  formula = log_vload.y ~ ADH + hard_drugs + log_vload.x + 
+                       age + BMI + RACE + EDUCBAS + SMOKE,
+  data = hiv_merge,
+  family = gaussian(),
+  prior = c(
+    prior(normal(0, 10000), class = "b"),      # Coefficients
+    prior(normal(0, 10000), class = "sigma", lb = 0)    # Error term
+  ),
+  chains = 4, iter = 10000, warmup = 2000, core = 4, seed = 123
+)
+
+## CD4 count
+adh_bayes_CD4 <- brm(
+  formula = LEU3N.y ~ ADH + hard_drugs + LEU3N.x + 
+                       age + BMI + RACE + EDUCBAS + SMOKE,
+  data = hiv_merge,
+  family = gaussian(),
+  prior = c(
+    prior(normal(0, 10000), class = "b"),      # Coefficients
+    prior(normal(0, 10000), class = "sigma", lb = 0)    # Error term
+  ),
+  chains = 4, iter = 10000, warmup = 2000, core = 4, seed = 123
+)
+
+## Physical QOL
+adh_bayes_phys <- brm(
+  formula = AGG_PHYS.y ~ ADH + hard_drugs + AGG_PHYS.x + 
+                       age + BMI + RACE + EDUCBAS + SMOKE,
+  data = hiv_merge,
+  family = gaussian(),
+  prior = c(
+    prior(normal(0, 10000), class = "b"),      # Coefficients
+    prior(normal(0, 10000), class = "sigma", lb = 0)    # Error term
+  ),
+  chains = 4, iter = 10000, warmup = 2000, core = 4, seed = 123
+)
+
+## Mental QOL
+adh_bayes_ment <- brm(
+  formula = AGG_MENT.y ~ ADH + hard_drugs + AGG_MENT.x + 
+                       age + BMI + RACE + EDUCBAS + SMOKE,
+  data = hiv_merge,
+  family = gaussian(),
+  prior = c(
+    prior(normal(0, 10000), class = "b"),      # Coefficients
+    prior(normal(0, 10000), class = "sigma", lb = 0)    # Error term
+  ),
+  chains = 4, iter = 10000, warmup = 2000, core = 4, seed = 123
+)
+```
+
+## Extract ADH effect from lm
+
+```{r}
+# Function to extract ADH effect
+extract_freq_adh <- function(model, name, exp = FALSE) {
+  res <- tidy(model, conf.int = TRUE) %>% filter(term == "hard_drugs")
+  
+  est <- res$estimate
+  low <- res$conf.low
+  high <- res$conf.high
+  
+  if(exp == TRUE) {
+    est <- 10^est; low <- 10^low; high <- 10^high
+  }
+  
+  tibble(
+    Outcome = name,
+    `Estimate (non-Bayes)` = round(est, 3),
+    SD = round(res$std.error, 3),
+    `95% CI` = paste0("[", round(low, 2), ", ", round(high, 2), "]"),
+    `p-value` = format.pval(res$p.value, eps = 0.001, digits = 3)
+  )
+}
+
+```
+
+## Extract ADH effect from Bayesian model
+
+```{r}
+extract_bayes_comparison <- function(model_no_adh, model_with_adh, name, exp = FALSE) {
+  
+    post <- as_draws_df(model_with_adh)$`b_hard_drugs`
+    hpdi_obj <- bayestestR::hdi(post, ci = 0.95)
+    waic_no <- waic(model_no_adh)$estimates["waic", "Estimate"]
+    waic_with <- waic(model_with_adh)$estimates["waic", "Estimate"]
+    
+    est <- as.data.frame(posterior_summary(model_with_adh, variable = "b_hard_drugs"))$Estimate
+    low <- hpdi_obj$CI_low
+    high <- hpdi_obj$CI_high
+    
+    if(exp == TRUE) {
+      est <- 10^est; low <- 10^as.numeric(low); high <- 10^as.numeric(high)
+    }
+    
+    tibble(
+      Model = name,
+      `Estimate (Bayes)` = round(est, 3),
+      SD = round(sd(post), 3),
+      HPDI = paste0("[", round(low, 2), ", ", round(high, 2), "]"),
+      `WAIC (no ADH)` = round(waic_no, 1),
+      `WAIC (with ADH)` = round(waic_with, 1),
+      `WAIC diff` = round(waic_with-waic_no, 1)
+    )
+  }
+
+# Summary Table
+freq_adh_summary <- bind_rows(
+  extract_freq_adh(adh_vload, "Viral Load (Exp10)", exp = TRUE),
+  extract_freq_adh(adh_CD4, "CD4 Count"),
+  extract_freq_adh(adh_phys, "Physical QOL"),
+  extract_freq_adh(adh_ment, "Mental QOL")
+)
+
+bayesian_adh_comp <- bind_rows(
+  extract_bayes_comparison(bayes_vload, adh_bayes_vload, "Viral Load (Exp10)", TRUE),
+  extract_bayes_comparison(bayes_CD4, adh_bayes_CD4, "CD4 Count", FALSE),
+  extract_bayes_comparison(bayes_phys, adh_bayes_phys, "Physical QOL", FALSE),
+  extract_bayes_comparison(bayes_ment, adh_bayes_ment, "Mental QOL", FALSE)
+)
+
+adh_sum <- bind_cols(freq_adh_summary, bayesian_adh_comp)
+
+flextable(adh_sum) %>% 
+  set_caption("Table 5: Frequentist and Bayesian Impact of Adherence (ADH) on Outcomes") %>%
+  autofit() %>% theme_booktabs()
+```
+
+## Examine convergence
+```{r}
+# Plots
+get_diagnostic_row(adh_bayes_vload, "Viral Load")
+get_diagnostic_row(adh_bayes_CD4,   "CD4 Count")
+get_diagnostic_row(adh_bayes_phys,  "Physical QOL")
+get_diagnostic_row(adh_bayes_ment,  "Mental QOL")
+
+# Create the diagnostic table
+bind_rows(
+  get_mcmc_summary(adh_bayes_vload, "Viral Load"),
+  get_mcmc_summary(adh_bayes_CD4, "CD4 Count"),
+  get_mcmc_summary(adh_bayes_phys, "Physical QOL"),
+  get_mcmc_summary(adh_bayes_ment, "Mental QOL")
+)
+```
+
 
 \pagebreak
 
