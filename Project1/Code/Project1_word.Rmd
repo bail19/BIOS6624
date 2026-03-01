@@ -204,7 +204,7 @@ p_ment <- ggplot(hiv_merge, aes(x = AGG_MENT.y)) +
 
 # Combine plots
 p_combine <- plot_grid(p_vload, p_logv, p_cd4, p_phys, p_ment, ncol = 2, labels=c('A1', 'A2', 'B', 'C', 'D'))
-title <- ggdraw() + draw_label("Figure 1. Density Plots of Outcomes", fontface='bold')
+title <- ggdraw() + draw_label("Figure A1. Density Plots of Outcomes", fontface='bold')
 plot_grid(title, p_combine, ncol=1, rel_heights=c(0.1, 1)) # Adjust rel_heights
 
 ```
@@ -502,7 +502,7 @@ combined_diagnostics <- grid.arrange(
   ncol = 1,
   top = grid::textGrob("MCMC Diagnostics Across All Treatment Outcomes\n", 
                        gp = grid::gpar(fontsize = 12, fontface = "bold")),
-  bottom = grid::textGrob("Figure 2: Assessing chain convergence (Trace), independence (ACF), and posterior consistency (Density)", 
+  bottom = grid::textGrob("Figure 1: Assessing chain convergence (Trace), independence (ACF), and posterior consistency (Density)", 
                           gp = grid::gpar(fontsize = 12, fontitalic = TRUE))
 )
 ```
@@ -543,7 +543,7 @@ ft_mcmc <- flextable(mcmc_summary_table) %>%
     ESS_Bulk = "Bulk ESS",
     ESS_Tail = "Tail ESS"
   ) %>%
-  set_caption("Table 4: MCMC Convergence Diagnostics for Primary Predictor") %>%
+  set_caption("Table 5: MCMC Convergence Diagnostics for Primary Predictor") %>%
   autofit() %>%
   theme_booktabs()
   
@@ -702,7 +702,7 @@ bayesian_adh_comp <- bind_rows(
 adh_sum <- bind_cols(freq_adh_summary, bayesian_adh_comp)
 
 flextable(adh_sum) %>% 
-  set_caption("Table 5: Frequentist and Bayesian Impact of Adherence (ADH) on Outcomes") %>%
+  set_caption("Table 4: Frequentist and Bayesian Impact of Hard Drug Use on Outcomes Adjusting for Adherence (ADH)") %>%
   autofit() %>% theme_booktabs()
 ```
 
