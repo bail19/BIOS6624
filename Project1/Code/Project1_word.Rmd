@@ -227,6 +227,10 @@ hiv_merge <- hiv_merge %>%
   filter(
     !if_any(ends_with(".y"), is.na)
   )
+
+# Write complete case data frame to a CSV file
+#hiv_merge <- na.omit(hiv_merge)
+#write.csv(hiv_merge, file = "~/Downloads/hiv_merge.csv", row.names = FALSE)
 ```
 
 ## Fit non-Bayesian models
@@ -629,7 +633,7 @@ adh_bayes_ment <- brm(
 )
 ```
 
-## Extract ADH effect from lm
+## Extract drug use effect from lm(with ADH)
 
 ```{r}
 # Function to extract ADH effect
@@ -655,7 +659,7 @@ extract_freq_adh <- function(model, name, exp = FALSE) {
 
 ```
 
-## Extract ADH effect from Bayesian model
+## Extract drug use effect from Bayesian model(with ADH)
 
 ```{r}
 extract_bayes_comparison <- function(model_no_adh, model_with_adh, name, exp = FALSE) {

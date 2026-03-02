@@ -10,7 +10,7 @@ This project employs both frequentist and bayesian framework approach to ensure 
 	3. Adherence: Mediation analysis to determine if drug use effects are driven by poor medication adherence (ADH).
 	  
 Data
-	•	The cleaned dataset being used for analysis can be found from "Project1/Data/hiv_merge.csv".
+	•	The cleaned dataset being used for analysis can be found from "Project1/Data/hiv_merge.csv", which includes 401 subjects with 371 non-users and 30 hard drug users. 
 
 Code
 	•	The R Markdown (.Rmd) file "Project0/Code/Project1_word.Rmd" fully reproduces the analysis.
