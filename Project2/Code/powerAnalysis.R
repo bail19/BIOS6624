@@ -1,4 +1,7 @@
 # Power Analysis for Aim 1 and Aim 2
+library(dplyr)
+library(tidyr)
+library(stringr)
 library(powerTools)
 library(ggplot2)
 library(gridExtra)
@@ -8,15 +11,15 @@ prelim <- read.csv("~/Downloads/PrelimData.csv")
 
 # Determine Bonferroni-adjusted significance level
 # Correlation between outcomes
-cor_cort_cvlt <- round(cor(prelim$CVLT_CNG3 , prelim$CORT_CNG3),3)
+cor_cort_cvlt <- cor(prelim$CVLT_CNG3 , prelim$CORT_CNG3)
 # Correlation between predictors
-cor_il6_mcp <-round(cor(prelim$IL_6, prelim$MCP_1),3)
+cor_il6_mcp <-cor(prelim$IL_6, prelim$MCP_1)
 
 # Generate plot for internal correlations
 df_1a <- data.frame(
   Comparison = factor(c("CORT vs CVLT", "IL-6 vs MCP-1"), 
                       levels = c("CORT vs CVLT", "IL-6 vs MCP-1")),
-  Correlation = c(cor_cort_cvlt, cor_il6_mcp)
+  Correlation = c(round(cor_cort_cvlt,3), round(cor_il6_mcp),3)
 )
 p1a <- ggplot(df_1a, aes(x = Comparison, y = Correlation, fill = Comparison)) +
   geom_bar(stat = "identity", width = 0.6) +
@@ -31,13 +34,12 @@ p1a <- ggplot(df_1a, aes(x = Comparison, y = Correlation, fill = Comparison)) +
         axis.title = element_text(size = 12))
 
 # Estimate expected effect size from preliminary data
-# Calculate the correlation to estimate Cohen's f2: f2 = r^2 / (1 - r^2)
 # Correlation between IL-6 and outcomes
-cor_il6_cort <- round(cor(prelim$IL_6, prelim$CORT_CNG3),3)
-cor_il6_cvlt <- round(cor(prelim$IL_6, prelim$CVLT_CNG3),3)
+cor_il6_cort <- cor(prelim$IL_6, prelim$CORT_CNG3)
+cor_il6_cvlt <- cor(prelim$IL_6, prelim$CVLT_CNG3)
 # Correlation between MCP-1 and outcomes
-cor_mcp_cort <- round(cor(prelim$MCP_1, prelim$CORT_CNG3),3)
-cor_mcp_cvlt <- round(cor(prelim$MCP_1, prelim$CVLT_CNG3),3)
+cor_mcp_cort <- cor(prelim$MCP_1, prelim$CORT_CNG3)
+cor_mcp_cvlt <- cor(prelim$MCP_1, prelim$CVLT_CNG3)
 
 # Generate correlation bar plot
 cor_plot <- data.frame(
@@ -45,7 +47,8 @@ cor_plot <- data.frame(
                    levels = c("CORT_CNG3", "CVLT_CNG3")),
   Marker = factor(c("IL_6", "MCP_1", "IL_6", "MCP_1"), 
                   levels = c("IL_6", "MCP_1")),
-  Correlation = c(cor_il6_cort, cor_mcp_cort, cor_il6_cvlt, cor_mcp_cvlt)
+  Correlation = c(round(cor_il6_cort,3), round(cor_mcp_cort,3), 
+                  round(cor_il6_cvlt,3), round(cor_mcp_cvlt,3))
 )
 
 p1b <- ggplot(cor_plot, aes(x = Outcome, y = Correlation, fill = Marker)) +
@@ -70,43 +73,70 @@ p1b <- ggplot(cor_plot, aes(x = Outcome, y = Correlation, fill = Marker)) +
 # Combine correlation plots side-by-side
 grid.arrange(p1a, p1b, ncol = 2, widths = c(1, 1.3))
 
-f2_prelim <- (cor_prelim^2) / (1 - cor_prelim^2)
 
 # parameters for power analysis
-n_total <- 175  # Total sample size (125 aMCI + 50 HC)
-# FDR Alpha adjustment(6 outcomes)
-# For a conservative power estimate, we use the FDR-adjusted threshold.
-n_tests <- 6
-q_level <- 0.05
-fdr_alpha <- (q_level * (n_tests + 1)) / (2 * n_tests) # Simplified estimation
-# Number of predictors
-npred_aim1 <- 11 # 1 predictor + 10 covariates
-npred_aim2 <- 13 # 1 predictor + 1 amyloid + 1 interaction + 10 covariates
-n_df <- n_total - n_pred - 1
+bonf_alpha <- round(0.05/(5*1*3),4) #(# of outcome* # of predictor * # of aims)
+powers <- c(0.7, 0.8, 0.9)
 
 # Power analysis using powertools
-# Calculation for minimum detectable effect size
-mdes_calc <- pwr_f2(u = n_pred_aim2, v = n_df, sig.level = fdr_alpha, power = 0.80)
-# Calculate required sample sizes based on preliminary data
-# Aim 1a & 1b (main effects)
-res_aim1 <- pwr_f2(u = npred_aim1, f2 = f2_prelim, sig.level = fdr_alpha, power = 0.80)
-sample_aim1 <- ceiling(res_aim1$v + npred_aim1 + 1)
+# Create function to compute sample size
+calc_n <- function(r_val, pwr_val, alpha_val) {
+  res <- ceiling(corr.1samp(rhoA = r_val, rho0 = 0,
+                            alpha = alpha_val, power = pwr_val,
+                            sides = 2))
+}
 
-# Aim 2 (interaction effect)
-f2_interaction <- f2_prelim * 0.7 
-res_aim2 <- pwr_f2(u = pred_aim2, f2 = f2_interaction, sig.level = fdr_alpha, power = 0.80)
-sample_aim2 <- ceiling(res_aim2$v + npred_aim2 + 1)
+# Generate Results Table
+results <- expand.grid(
+  Power = powers,
+  Aim = c("Aim1", "Aim2"),
+  Outcome = c("CVLT", "Cortical"),
+  Cytokine = c("IL6/TNF", "MCP1/Eotaxin")
+) %>%
+  rowwise() %>%
+  mutate(
+    # Mapping correlations to groups
+    r = case_when(
+      Cytokine == "IL6/TNF" & Outcome == "Cortical" ~ cor_il6_cort,
+      Cytokine == "IL6/TNF" ~ cor_il6_cvlt,
+      Cytokine == "MCP1/Eotaxin" & Outcome == "Cortical" ~ cor_mcp_cort,
+      Cytokine == "MCP1/Eotaxin" ~ cor_mcp_cvlt#,
+      #TRUE ~ r_IL6_CVLT   # fallback assumption
+    ),
+    # Adjust correlation for Aim 2 Interaction
+    r_adj = ifelse(Aim == "Aim2", r * 0.75, r),
+    N_required = calc_n(r_adj, Power, bonf_alpha)
+  ) %>%
+  ungroup()
 
-# Generate the table
-power_table <- data.frame(
-  Aim = c("Aim 1a (Baseline)", "Aim 1b (Change)", "Aim 2 (Interaction)"),
-  Predictor = c("Baseline Cytokines", "Change in Cytokines", "Amyloid x Cytokine"),
-  Effect_Size_f2 = c(round(f2_prelim, 3), round(f2_prelim, 3), round(f2_interaction, 3)),
-  Alpha_FDR = rep(round(fdr_alpha, 3), 3),
-  Target_Power = 0.80,
-  Required_N = c(sample_aim1, sample_aim1, sample_aim2)
+# Generate summary range rows
+summary_ranges <- results %>%
+  group_by(Aim, Power) %>%
+  summarise(
+    Range = paste0(min(N_required), " - ", max(N_required)),
+    .groups = 'drop'
+  ) %>%
+  mutate(Row = paste0(Aim, "_Summary_Range")) %>%
+  pivot_wider(names_from = Power, values_from = Range)
+
+# Final formatting
+main_table <- results %>%
+  mutate(
+    # Create descriptive column headers
+    Row = paste(Aim, Outcome, Cytokine, sep = "_")
+  ) %>%
+  select(Row, Power, N_required) %>%
+  mutate(N_required = as.character(N_required)) %>%
+  pivot_wider(
+    names_from = Power,
+    values_from = N_required
+  ) 
+
+final_table <- bind_rows(
+  main_table %>% filter(str_detect(Row, "Aim1")),
+  summary_ranges %>% filter(Aim == "Aim1") %>% select(-Aim),
+  main_table %>% filter(str_detect(Row, "Aim2")),
+  summary_ranges %>% filter(Aim == "Aim2") %>% select(-Aim)
 )
-
-
 
 
