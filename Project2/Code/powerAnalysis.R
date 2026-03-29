@@ -1,13 +1,48 @@
 # Power Analysis for Aim 1 and Aim 2
 library(powerTools)
+library(ggplot2)
 
 # Load preliminary Data 
 prelim <- read.csv("~/Downloads/PrelimData.csv")
 
 # Estimate expected effect size from preliminary data
 # Calculate the correlation to estimate Cohen's f2: f2 = r^2 / (1 - r^2)
-# Correlation between IL-6 and Cortical Thickness Change
-cor_prelim <- cor(prelim$IL_6, prelim$CORT_CNG3) 
+# Correlation between IL-6 and outcomes
+cor_il6_cort <- around(cor(prelim$IL_6, prelim$CORT_CNG3),3)
+cor_il6_cvlt <- around(cor(prelim$IL_6, prelim$CVLT_CNG3),3)
+# Correlation between MCP-1 and outcomes
+cor_mcp_cort <- around(cor(prelim$MCP_1, prelim$CORT_CNG3),3)
+cor_mcp_cvlt <- around(cor(prelim$MCP_1, prelim$CVLT_CNG3),3)
+
+# Generate correlation bar plot
+cor_plot <- data.frame(
+  Outcome = factor(c("CORT_CNG3", "CORT_CNG3", "CVLT_CNG3", "CVLT_CNG3"), 
+                   levels = c("CORT_CNG3", "CVLT_CNG3")),
+  Marker = factor(c("IL_6", "MCP_1", "IL_6", "MCP_1"), 
+                  levels = c("IL_6", "MCP_1")),
+  Correlation = c(cor_il6_cort, cor_mcp_cort, cor_il6_cvlt, cor_mcp_cvlt)
+)
+
+p <- ggplot(cor_plot, aes(x = Outcome, y = Correlation, fill = Marker)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+  # Add value labels above or below the bars
+  geom_text(aes(label = Correlation), 
+            position = position_dodge(width = 0.8), 
+            vjust = 1.5, size = 4, fontface = "bold") +
+  scale_fill_manual(values = c("IL_6" = "#1F4E99", "MCP_1" = "#B68233")) +
+  scale_y_continuous(limits = c(-1.0, 0), breaks = seq(-1.0, 0, 0.2)) +
+  labs(title = "Figure 1. Correlation Coefficients from Preliminary Data",
+       x = "Outcome",
+       y = "Correlation") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "plain", size = 14),
+    axis.title = element_text(size = 12),
+    legend.position = "bottom",
+    panel.grid.major.x = element_blank(),
+    axis.line.x = element_line(color = "black")
+  )
+
 f2_prelim <- (cor_prelim^2) / (1 - cor_prelim^2)
 
 # parameters for power analysis
