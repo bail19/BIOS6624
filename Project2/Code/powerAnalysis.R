@@ -2,9 +2,10 @@
 library(dplyr)
 library(tidyr)
 library(stringr)
-library(powerTools)
+library(powertools)
 library(ggplot2)
 library(gridExtra)
+library(flextable)
 
 # Load preliminary Data 
 prelim <- read.csv("~/Downloads/PrelimData.csv")
@@ -19,7 +20,7 @@ cor_il6_mcp <-cor(prelim$IL_6, prelim$MCP_1)
 df_1a <- data.frame(
   Comparison = factor(c("CORT vs CVLT", "IL-6 vs MCP-1"), 
                       levels = c("CORT vs CVLT", "IL-6 vs MCP-1")),
-  Correlation = c(round(cor_cort_cvlt,3), round(cor_il6_mcp),3)
+  Correlation = c(round(cor_cort_cvlt,3), round(cor_il6_mcp,3))
 )
 p1a <- ggplot(df_1a, aes(x = Comparison, y = Correlation, fill = Comparison)) +
   geom_bar(stat = "identity", width = 0.6) +
@@ -75,7 +76,7 @@ grid.arrange(p1a, p1b, ncol = 2, widths = c(1, 1.3))
 
 
 # parameters for power analysis
-bonf_alpha <- round(0.05/(5*1*3),4) #(# of outcome* # of predictor * # of aims)
+bonf_alpha <- round(0.05/(2*1*3),4) #(# of outcome* # of predictor * # of aims)
 powers <- c(0.7, 0.8, 0.9)
 
 # Power analysis using powertools
@@ -90,18 +91,17 @@ calc_n <- function(r_val, pwr_val, alpha_val) {
 results <- expand.grid(
   Power = powers,
   Aim = c("Aim1", "Aim2"),
-  Outcome = c("CVLT", "Cortical"),
-  Cytokine = c("IL6/TNF", "MCP1/Eotaxin")
+  Outcome = c("CVLT", "Cortical Thickness"),
+  Markers = c("IL-6/TNF-a", "MCP-1/Eotaxin-1")
 ) %>%
   rowwise() %>%
   mutate(
     # Mapping correlations to groups
     r = case_when(
-      Cytokine == "IL6/TNF" & Outcome == "Cortical" ~ cor_il6_cort,
-      Cytokine == "IL6/TNF" ~ cor_il6_cvlt,
-      Cytokine == "MCP1/Eotaxin" & Outcome == "Cortical" ~ cor_mcp_cort,
-      Cytokine == "MCP1/Eotaxin" ~ cor_mcp_cvlt#,
-      #TRUE ~ r_IL6_CVLT   # fallback assumption
+      Markers == "IL-6/TNF-a" & Outcome == "Cortical Thickness" ~ cor_il6_cort,
+      Markers == "IL-6/TNF-a" ~ cor_il6_cvlt,
+      Markers == "MCP-1/Eotaxin-1" & Outcome == "Cortical Thickness" ~ cor_mcp_cort,
+      Markers == "MCP-1/Eotaxin-1" ~ cor_mcp_cvlt
     ),
     # Adjust correlation for Aim 2 Interaction
     r_adj = ifelse(Aim == "Aim2", r * 0.75, r),
@@ -109,34 +109,29 @@ results <- expand.grid(
   ) %>%
   ungroup()
 
+main_table <- results %>%
+  select(Aim, Outcome, Markers, Power, N_required) %>%
+  mutate(N_required = as.character(N_required)) %>%
+  pivot_wider(names_from = Power, values_from = N_required) %>%
+  arrange(Aim, Outcome)
+
 # Generate summary range rows
-summary_ranges <- results %>%
+summary_rows <- results %>%
   group_by(Aim, Power) %>%
   summarise(
     Range = paste0(min(N_required), " - ", max(N_required)),
     .groups = 'drop'
   ) %>%
-  mutate(Row = paste0(Aim, "_Summary_Range")) %>%
+  mutate(Outcome = "Summary range", Markers = "Summary range") %>%
   pivot_wider(names_from = Power, values_from = Range)
 
 # Final formatting
-main_table <- results %>%
-  mutate(
-    # Create descriptive column headers
-    Row = paste(Aim, Outcome, Cytokine, sep = "_")
-  ) %>%
-  select(Row, Power, N_required) %>%
-  mutate(N_required = as.character(N_required)) %>%
-  pivot_wider(
-    names_from = Power,
-    values_from = N_required
-  ) 
-
-final_table <- bind_rows(
-  main_table %>% filter(str_detect(Row, "Aim1")),
-  summary_ranges %>% filter(Aim == "Aim1") %>% select(-Aim),
-  main_table %>% filter(str_detect(Row, "Aim2")),
-  summary_ranges %>% filter(Aim == "Aim2") %>% select(-Aim)
+final_df <- bind_rows(
+  main_table %>% filter(Aim == "Aim1"),
+  summary_rows %>% filter(Aim == "Aim1"),
+  main_table %>% filter(Aim == "Aim2"),
+  summary_rows %>% filter(Aim == "Aim2")
 )
+write.csv(final_df, file = "~/Downloads/final_df.csv", row.names = FALSE)
 
 
