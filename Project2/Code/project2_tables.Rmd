@@ -1,0 +1,125 @@
+---
+title: "Project 2 Tables"
+author: "Lu Bai"
+date: "2026-03-29"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyr)
+library(flextable)
+```
+
+# Table 1
+```{r}
+# Create the data frame
+model_df <- data.frame(
+  Aim = c("1a", "1b", "2"),
+  Primary_Outcome = c(
+    "Change in continuous memory variables: 
+    - CVLT (20' Delay Total Correct, Recognition D-Prime),
+    - Benson Figure (15' Delay Total Correct), 
+    - MST Proportion Correct, 
+    - Story Recall (1-Week Delay Total Correct)
+    & AD-signature cortical thickness over 1 year",
+    "Change in continuous memory variables: 
+    - CVLT (20' Delay Total Correct, Recognition D-Prime),
+    - Benson Figure (15' Delay Total Correct), 
+    - MST Proportion Correct, 
+    - Story Recall (1-Week Delay Total Correct)
+    & AD-signature cortical thickness over 1 year",
+    "Change in continuous memory variables: 
+    - CVLT (20' Delay Total Correct, Recognition D-Prime),
+    - Benson Figure (15' Delay Total Correct), 
+    - MST Proportion Correct, 
+    - Story Recall (1-Week Delay Total Correct)
+    & AD-signature cortical thickness over 1 year"
+  ),
+  Primary_Exposure = c(
+    "Baseline levels of 1 Inflammatory Marker (e.g., IL-6, TNF-a, MCP-1, or Eotaxin-1)",
+    "1-year change in 1 Inflammatory Marker (follow-up minus baseline)",
+    "Interaction Term: Baseline Amyloid PET x Baseline Inflammatory Marker"
+  ),
+  Demographics = c(
+    "Age, Sex, Education, Clinical Group (HC/aMCI)",
+    "Age, Sex, Education, Clinical Group (HC/aMCI)",
+    "Age, Sex, Education, Clinical Group (HC/aMCI)"
+  ),
+  Potential_Confounders = c(
+    "APOE genotype, CV risk, BMI, history of hypercholesterolemia, NSAID use",
+    "APOE genotype, CV risk, BMI, history of hypercholesterolemia, NSAID use",
+    "Amyloid PET (main effect), APOE, CV risk, BMI, history of hypercholesterolemia, NSAID use"
+  ),
+  Total_Predictors = c("1+4+0~5 = 5~10",
+                       "1+4+0~5 = 5~10", 
+                       "1+0~2(main effect)+4+0~5 = 5~12")
+)
+```
+
+```{r}
+# Generate the flextable
+ft_tb1 <- flextable(model_df) %>%
+  autofit() %>% 
+  # Merge identical vertical cells
+  merge_v(j = c("Primary_Outcome", "Demographics", "Potential_Confounders", "Total_Predictors")) %>%
+  # Label headers clearly
+  set_header_labels(
+    Aim = "Aim",
+    Primary_Outcome = "Primary Outcomes (n = 6)",
+    Primary_Exposure = "Primary Exposure (n = 4)",
+    Demographics = "Demographics (n = 4)",
+    Potential_Confounders = "Potential Confounders*",
+    Total_Predictors = "Total Covariates (k)"
+  ) %>%
+  # Formatting
+  theme_vanilla() %>%
+  valign(j = c(2, 4, 5), valign = "center") %>% # Center the merged text vertically
+  align(j = c(1, 6), align = "center", part = "all") %>%
+  bold(part = "header") %>%
+  bg(j = "Total_Predictors", bg = "#F9F9F9") %>%
+  # Set column widths for readability
+  width(j = 1, width = 0.5) %>%
+  width(j = 2:3, width = 1.5) %>%
+  width(j = 4:6, width = 1) %>%
+  # Add footnote about variable reduction
+  add_footer_lines("*Only one of the highly correlated potential confounders (|r| > 0.7) will be included to prevent over-fitting.") %>%
+  italic(part = "footer") %>%
+  set_caption("Table 1.Summary of outcomes, predictors, and covariates for analysis relationship between peripheral inflammation, amyloid pathology, and cognitive/structural decline")
+```
+
+\pagebreak
+```{r}
+ft_tb1
+```
+
+\pagebreak
+
+# Table 2
+```{r}
+final_df2 <- read.csv("~/Downloads/final_df.csv")
+bonf_alpha <- round(0.05/(2*1*3),4)
+
+ft <- flextable(final_df2) %>%
+  # Merge vertical cells for aim and outcome if they are the same
+  merge_v(j = c("Aim", "Outcome")) %>%
+  # Merge outcome and markers columns only for the summary rows
+  merge_h_range(i = ~ Outcome == "Summary range", j1 = "Outcome", j2 = "Markers") %>%
+  # Layout
+  set_header_labels(Outcome = "Outcome Measures", Markers = "Markers Group") %>%
+  theme_vanilla() %>%
+  autofit() %>%
+  align(j = 4:6, align = "center", part = "all") %>%
+  bold(i = ~ Outcome == "Summary range", bold = TRUE) %>%
+  bg(i = ~ Outcome == "Summary range", bg = "#F2F2F2") %>%
+  set_caption(paste0("Table 2. Required Sample Size (N) by Power and Alpha = ", bonf_alpha))
+ft
+```
+
+\pagebreak
+
+## Code Appendix
+
+```{r ref.label=knitr::all_labels(appendix == TRUE), echo=TRUE, eval=FALSE, include=TRUE}
+```
