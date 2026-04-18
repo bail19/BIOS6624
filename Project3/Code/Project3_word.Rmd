@@ -14,6 +14,7 @@ library(tableone)
 library(flextable)
 library(survminer) # For KM curve
 library(MASS) # For stepAIC (Backward Selection)
+library(broom)
 ```
 
 # Data cleaning and management
@@ -122,6 +123,66 @@ arrange_ggsurvplots(splots, print = TRUE, ncol = 2, nrow = 2,
                     title = "Figure 1. 10-Year Stroke-Free Kaplan-Meier Survival Curves by Secondary Risk Factors",
                     font.main = c(18, "bold"))
 ```
+
+# Secondary risk factor backward selection
+```{r}
+# Model selection (Backward)
+# Fit full model with all primary and secondary factors for Males
+# Define all variables involved in the selection process
+vars_to_keep <- c("AGE", "DIABETES", "SYSBP", "PREVCHD", 
+                  "BPMEDS", "CURSMOKE", "TOTCHOL", "BMI", 
+                  "fotime", "strk_event")
+
+# Create a clean subset for the female-stratified analysis
+dat_complete <- fram_10yr %>%
+  dplyr::select(all_of(vars_to_keep)) %>%
+  drop_na() 
+
+mod_full <- coxph(Surv(fotime, strk_event) ~ AGE + DIABETES + SYSBP + PREVCHD + BPMEDS + CURSMOKE + TOTCHOL + BMI, data = dat_complete)
+
+# Perform backward selection based on AIC
+mod_final <- step(mod_full, direction = "backward")
+```
+
+```{r}
+# Manually create the data frame based on stepwise output
+aic_summary <- data.frame(
+  Step = c("Start", "Step 1", "Step 2", "Step 3", "Step 4 (Final)"),
+  Model_Formula = c(
+    "Full Model (All Variables)",
+    "- TOTCHOL",
+    "- BMI",
+    "- PREVCHD",
+    "- BPMEDS"
+  ),
+  AIC = c(1611.4, 1609.56, 1607.79, 1606.62, 1606.52),
+  Variables_Remaining = c(
+    "All", 
+    "Age, Diabetes, SYSBP, BMI, PREVCHD, BPMEDS, Smoke",
+    "Age, Diabetes, SYSBP, PREVCHD, BPMEDS, Smoke",
+    "Age, Diabetes, SYSBP, BPMEDS, Smoke",
+    "Age, Diabetes, SYSBP, Smoke"
+  )
+)
+
+# Generate a summary table
+aic_table <- flextable(aic_summary) %>%
+  set_header_labels(
+    Step = "Iteration",
+    Model_Formula = "Variable Removed",
+    AIC = "AIC Value",
+    Variables_Remaining = "Predictors"
+  ) %>%
+  bold(i = 5, part = "body") %>%
+  bg(i = 5, bg = "#f2f2f2", part = "body") %>%
+  set_caption("Table 2. Summary of Backward Model Selection via AIC") %>%
+  autofit() %>%
+  theme_booktabs()
+
+# Display the table
+aic_table
+```
+
 
 \pagebreak
 
