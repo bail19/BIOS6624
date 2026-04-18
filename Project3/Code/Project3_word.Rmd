@@ -183,7 +183,50 @@ aic_table <- flextable(aic_summary) %>%
 aic_table
 ```
 
+# Fit final model
 
+```{r}
+# Fit final model
+mod_male <- coxph(Surv(fotime, strk_event) ~ AGE + DIABETES + SYSBP + CURSMOKE, data = filter(fram_10yr, SEX == 1))
+
+mod_female <- coxph(Surv(fotime, strk_event) ~ AGE + DIABETES + SYSBP + CURSMOKE, data = filter(fram_10yr, SEX == 2))
+
+# Extract and clean the results for both models
+# calculate Hazard Ratios (exp(coef)) and 95% Confidence Intervals
+tidy_male <- tidy(mod_male, exponentiate = TRUE, conf.int = TRUE) %>%
+  mutate(Model = "Male Cox PH Model")
+
+tidy_female <- tidy(mod_female, exponentiate = TRUE, conf.int = TRUE) %>%
+  mutate(Model = "Female Cox PH Model")
+
+# Combine the data
+summary_df <- bind_rows(tidy_male, tidy_female) %>%
+  dplyr::select(Model, term, estimate, conf.low, conf.high, p.value) %>%
+  mutate(
+    across(c(estimate, conf.low, conf.high), ~round(., 3)),
+    p.value = if_else(p.value < 0.001, "< 0.001", as.character(round(p.value, 3))),
+    HR_CI = paste0(estimate, " (", conf.low, "-", conf.high, ")")
+  )
+
+# Create the Flextable
+tab_mod_summary <- summary_df %>%
+  dplyr::select(Model, term, HR_CI, p.value) %>%
+  flextable() %>%
+  merge_v(j = "Model") %>%
+  set_header_labels(
+    term = "Risk Factor",
+    HR_CI = "Hazard Ratio (95% CI)",
+    p.value = "P-Value"
+  ) %>%
+  set_caption("Table 2: Adjusted Hazard Ratios for 10-Year Stroke Risk by Sex") %>%
+  bold(i = ~ as.numeric(gsub("< ", "", p.value)) < 0.05, j = "p.value") %>%
+  theme_vanilla() %>%
+  valign(j = "Model", valign = "top") %>%
+  add_footer_lines("Note: Models adjusted for Age, Diabetes, Systolic BP, and Current Smoking status based on backward AIC selection.") %>%
+  autofit()
+
+tab_mod_summary
+```
 \pagebreak
 
 ## Code Appendix
