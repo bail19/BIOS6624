@@ -1,0 +1,131 @@
+---
+title: "Project 3"
+author: "Lu Bai"
+date: "2026-04-18"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# Load libraries
+library(survival)
+library(tidyverse)
+library(tableone)
+library(flextable)
+library(survminer) # For KM curve
+library(MASS) # For stepAIC (Backward Selection)
+```
+
+# Data cleaning and management
+```{r}
+# Load data
+framingham <- read.csv("~/Downloads/frmgham2.csv")
+
+# Data cleaning and management
+framingham1 <- framingham %>% filter(PERIOD == 1,
+                                     PREVSTRK == 0)
+
+fram_10yr <- framingham1 %>%
+  mutate(
+    # Time to event is the minimum of stroke date, death date, or 10 years
+    # Note: If stroke occurs before death, it is an event.
+    fotime = pmin(TIMESTRK, TIMEDTH, 3652, na.rm = TRUE),
+    strk_event = if_else(TIMESTRK <= 3652 & STROKE == 1, 1, 0),
+    dth_event = if_else(TIMEDTH <= 3652 & STROKE == 0 & DEATH == 1, 1, 0)
+  ) %>%
+  drop_na(SEX, AGE, DIABETES, SYSBP)
+#, PREVCHD, BPMEDS, CURSMOKE, TOTCHOL, BMI
+```
+
+# Generate table 1
+```{r}
+# Define variables for the table
+vars <- c("strk_event", "dth_event", "AGE", "SYSBP", "TOTCHOL", "BMI", "DIABETES", "PREVCHD", "BPMEDS", "CURSMOKE")
+factorVars <- c("strk_event", "dth_event", "DIABETES", "PREVCHD", "BPMEDS", "CURSMOKE")
+
+# Create the summary stratified by Sex
+tab1_obj <- CreateTableOne(vars = vars, 
+                           strata = "SEX", 
+                           data = fram_10yr, 
+                           factorVars = factorVars,
+                           test = TRUE,
+                           addOverall = TRUE)
+
+# Generate table 1 using flextable
+tab1_df <- print(tab1_obj, 
+                 missing = TRUE,
+                 #quote = FALSE, 
+                 noSpaces = TRUE, 
+                 printToggle = FALSE,
+                 showAllLevels = FALSE) %>%
+  as.data.frame() %>%
+  rownames_to_column("Characteristic") %>%
+  select(-c(test))
+
+# Rename rows and columns of table 1
+tab1_df$Characteristic <- c("N", "Stroke event, n(%)", "Death, n(%)",
+                            "Age, mean(SD)", "Systolic blood pressure, mean(SD)",
+                            "Total cholesterol, mean(SD)", "BMI, mean(SD)", 
+                            "Diabetic, n(%)","Prevalent coronary heart disease, n(%)",
+                            "Use of anti-hypertensive meds, n(%)", "Smoking, n(%)")
+colnames(tab1_df) <- c("Characteristic", "Overall", 
+                      "Men", "Women", "p-value",
+                      "Rate of Missing (%)")
+
+ft1 <- flextable(tab1_df) %>%
+  set_header_labels(Characteristic = "Baseline Characteristic") %>%
+  bold(part = "header") %>%
+  align(j = 1:6, align = "center", part = "body") %>%
+  #italic(i = ~ str_detect(Characteristic, "mean|%"), j = 1) %>%
+  autofit() %>%
+  add_footer_lines("Note: Stroke event indicates participants had the first occurrence of stroke within the 10-year follow-up; Censoring in stroke event includes death without stroke and completion of 10-year follow-up; Death indicates participants die within the 10-year follow-up.") %>%
+  theme_booktabs() %>%
+  set_caption("Table 1. Descriptive statistics of baseline characteristics, the number of stroke and death event by sex")
+
+# Display table
+ft1
+```
+
+# Kaplan-Meier Curves
+```{r}
+# Fit KM Curve for Secondary risk factors
+km_chd <- survfit(Surv(fotime, strk_event) ~ PREVCHD, data = fram_10yr)
+km_bpmeds <- survfit(Surv(fotime, strk_event) ~ BPMEDS, data = fram_10yr)
+km_smoke <- survfit(Surv(fotime, strk_event) ~ CURSMOKE, data = fram_10yr)
+
+# Generate individual plots
+plot_chd <- ggsurvplot(km_chd, data = fram_10yr, break.time.by = 365,
+                       xlim = c(0, 3652.5), ylim = c(0.8, 1), 
+                       title = "Prevalent CHD", font.title = c(12),
+                       legend.labs = c("No", "Yes"), 
+                       xlab = "Days of Follow-up", 
+                       ylab = "Stroke-Free Survival Probability",
+                       ggtheme = theme_minimal())
+
+plot_bpmeds <- ggsurvplot(km_bpmeds, data = fram_10yr, break.time.by = 365,
+                          xlim = c(0, 3652.5), ylim = c(0.8, 1),
+                          title = "Use of Anti-hypertensive Meds", font.title = c(12),
+                          xlab = "Days of Follow-up",
+                          ylab = "Stroke-Free Survival Probability",
+                          legend.labs = c("No", "Yes"), ggtheme = theme_minimal())
+
+plot_smoke <- ggsurvplot(km_smoke, data = fram_10yr, break.time.by = 365,
+                         xlim = c(0, 3652.5), ylim = c(0.8, 1),
+                         title = "Current Smoking", font.title = c(12),
+                         xlab = "Days of Follow-up",
+                         ylab = "Stroke-Free Survival Probability",
+                         legend.labs = c("Non-Smoker", "Smoker"), ggtheme = theme_minimal())
+
+# Arrange in two columns
+splots <- list(plot_chd, plot_bpmeds, plot_smoke)
+arrange_ggsurvplots(splots, print = TRUE, ncol = 2, nrow = 2,
+                    title = "Figure 1. 10-Year Stroke-Free Kaplan-Meier Survival Curves by Secondary Risk Factors",
+                    font.main = c(18, "bold"))
+```
+
+\pagebreak
+
+## Code Appendix
+
+```{r ref.label=knitr::all_labels(appendix == TRUE), echo=TRUE, eval=FALSE, include=TRUE}
+```
