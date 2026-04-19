@@ -15,6 +15,7 @@ library(flextable)
 library(survminer) # For KM curve
 library(MASS) # For stepAIC (Backward Selection)
 library(broom)
+library(ggplot2)
 ```
 
 # Data cleaning and management
@@ -61,7 +62,7 @@ tab1_df <- print(tab1_obj,
                  showAllLevels = FALSE) %>%
   as.data.frame() %>%
   rownames_to_column("Characteristic") %>%
-  select(-c(test))
+  dplyr::select(-c(test))
 
 # Rename rows and columns of table 1
 tab1_df$Characteristic <- c("N", "Stroke event, n(%)", "Death, n(%)",
@@ -226,6 +227,82 @@ tab_mod_summary <- summary_df %>%
   autofit()
 
 tab_mod_summary
+```
+
+# Calculate 10-year probability of stroke
+```{r}
+# Calculate 10-Year stroke probability
+# Function to extract 10-year probability of stroke from models
+get_prob <- function(model, age, sbp, diabetes, smoke) {
+  profile <- data.frame(AGE = age, SYSBP = sbp, DIABETES = diabetes, CURSMOKE = smoke)
+  surv_est <- survfit(model, newdata = profile)
+  prob <- 1 - summary(surv_est, times = 3652)$surv
+  return(round(prob * 100, 2))
+}
+
+# Construct the results data frame
+profile_df <- expand.grid(
+  Age = c(40, 50, 60),
+  # Baseline is SBP=110, Diabetes=0, Smoke=0. High BP is SBP=170.
+  Scenario = c("Baseline", "High BP (>160 mmHg)", "Diabetes", "High BP + Diabetes", "Smoking")
+) %>%
+  rowwise() %>%
+  mutate(
+    Male_Prob = case_when(
+      Scenario == "Baseline" ~ get_prob(mod_male, Age, 110, 0, 0),
+      Scenario == "High BP (>160 mmHg)" ~ get_prob(mod_male, Age, 170, 0, 0),
+      Scenario == "Diabetes" ~ get_prob(mod_male, Age, 110, 1, 0),
+      Scenario == "High BP + Diabetes" ~ get_prob(mod_male, Age, 170, 1, 0),
+      Scenario == "Smoking" ~ get_prob(mod_male, Age, 110, 0, 1)
+    ),
+    Female_Prob = case_when(
+      Scenario == "Baseline" ~ get_prob(mod_female, Age, 110, 0, 0),
+      Scenario == "High BP (>160 mmHg)" ~ get_prob(mod_female, Age, 170, 0, 0),
+      Scenario == "Diabetes" ~ get_prob(mod_female, Age, 110, 1, 0),
+      Scenario == "High BP + Diabetes" ~ get_prob(mod_female, Age, 170, 1, 0),
+      Scenario == "Smoking" ~ get_prob(mod_female, Age, 110, 0, 1)
+    )
+  )
+
+# Pivot the data to have age as columns
+df_male_wide <- profile_df %>%
+  dplyr::select(Age, Scenario, Male_Prob) %>%
+  pivot_wider(names_from = Age, values_from = Male_Prob, names_prefix = "Age_")
+
+df_female_wide <- profile_df %>%
+  dplyr::select(Age, Scenario, Female_Prob) %>%
+  pivot_wider(names_from = Age, values_from = Female_Prob, names_prefix = "Age_")
+
+# Generate the Male table
+tab_male <- df_male_wide %>%
+  flextable() %>%
+  set_header_labels(
+    Scenario = "Risk Profile Scenario",
+    Age_40 = "Age 40",
+    Age_50 = "Age 50",
+    Age_60 = "Age 60"
+  ) %>%
+  set_caption("Table 3a: 10-Year Probability of Stroke (%) for Males by Age") %>%
+  add_header_row(values = c("", "Baseline Age at Prediction"), colwidths = c(1, 3)) %>%
+  theme_vanilla() %>%
+  autofit()
+
+# Generate the Female Table
+tab_female <- df_female_wide %>%
+  flextable() %>%
+  set_header_labels(
+    Scenario = "Risk Profile Scenario",
+    Age_40 = "Age 40",
+    Age_50 = "Age 50",
+    Age_60 = "Age 60"
+  ) %>%
+  set_caption("Table 3b: 10-Year Probability of Stroke (%) for Females by Age") %>%
+  add_header_row(values = c("", "Baseline Age at Prediction"), colwidths = c(1, 3)) %>%
+  theme_vanilla() %>%
+  autofit()
+
+tab_male
+tab_female
 ```
 \pagebreak
 
