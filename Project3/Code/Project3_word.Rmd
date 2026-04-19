@@ -466,6 +466,17 @@ ggplot(filter(fram_long, RANDID %in% sample_ids),
        y = "Systolic BP (mmHg)")
 ```
 
+# Examine cox ph assumption
+```{r}
+# Calculate Schoenfeld Residuals for both models
+male_res <- cox.zph(mod_male)
+female_res <- cox.zph(mod_female)
+
+# Graph the Residuals
+ggcoxzph(male_res, caption = "Figure A2a. Schoenfeld residuals plot for male")
+ggcoxzph(female_res, caption = "Figure A2b. Schoenfeld Residuals plot for female")
+```
+
 \pagebreak
 
 ## Code Appendix
