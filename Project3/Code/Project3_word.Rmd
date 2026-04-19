@@ -304,6 +304,168 @@ tab_female <- df_female_wide %>%
 tab_male
 tab_female
 ```
+
+# Longitudinal change of risk factor
+```{r}
+# Assume 'fram_long' contains data for PERIOD 1, 2, and 3
+fram_long <- framingham %>% filter(PREVSTRK == 0)
+# Continuous Variable Stability (e.g., Systolic BP)
+long_summary <- fram_long %>%
+  group_by(RANDID) %>%
+  arrange(PERIOD) %>%
+  summarise(
+    mean_sbp = mean(SYSBP, na.rm = TRUE),
+    sd_sbp = sd(SYSBP, na.rm = TRUE),
+    total_change = last(SYSBP) - first(SYSBP),
+    # Within-Subject Coefficient of Variation
+    wscv = (sd_sbp / mean_sbp) * 100
+  ) %>%
+  ungroup() %>%
+  summarise(
+    avg_wscv = mean(wscv, na.rm = TRUE),
+    avg_total_change = mean(total_change, na.rm = TRUE)
+  )
+long_summary
+```
+
+```{r}
+# Prepare Wide Data
+diab_cond <- fram_long %>%
+  dplyr::select(RANDID, PERIOD, DIABETES) %>%
+  pivot_wider(names_from = PERIOD, values_from = DIABETES, names_prefix = "P") %>%
+  drop_na()
+
+# Calculate Conditional Proportions: denominators separately for Baseline = 1 and Baseline = 0
+summary_cond <- diab_cond %>%
+  summarise(
+    # Denominators
+    Total_Baseline_1 = sum(P1 == 1),
+    Total_Baseline_0 = sum(P1 == 0),
+    
+    # Numerators
+    Persistent_111 = sum(P1 == 1 & P2 == 1 & P3 == 1),
+    Persistent_000 = sum(P1 == 0 & P2 == 0 & P3 == 0),
+    Incident_Early = sum(P1 == 0 & P2 == 1 & P3 == 1),
+    Incident_Late  = sum(P1 == 0 & P2 == 0 & P3 == 1)
+  ) %>%
+  mutate(
+    `Steady Diabetes (1->1->1 | Baseline=1)` = (Persistent_111 / Total_Baseline_1) * 100,
+    `Steady Healthy (0->0->0 | Baseline=0)`  = (Persistent_000 / Total_Baseline_0) * 100,
+    `Early Incidence (0->1->1 | Baseline=0)` = (Incident_Early / Total_Baseline_0) * 100,
+    `Late Incidence (0->0->1 | Baseline=0)`  = (Incident_Late / Total_Baseline_0) * 100
+  ) %>%
+  pivot_longer(cols = contains("|"), names_to = "Metric", values_to = "Percentage")
+
+# Create the Flextable
+ft_cond_diab <- summary_cond %>%
+  dplyr::select(Metric, Percentage) %>%
+  mutate(Percentage = round(Percentage, 2)) %>%
+  flextable() %>%
+  set_header_labels(Metric = "Transition Metric (Conditional)", Percentage = "Percentage (%)") %>%
+  set_caption("Table 4: Conditional Diabetes Transition and Incidence Rates") %>%
+  theme_vanilla() %>%
+  autofit()
+
+ft_cond_diab
+
+```
+
+```{r}
+# Repeated measures ANOVA and effect size
+library(rstatix)
+anova_res <- fram_long %>%
+  filter(!is.na(SYSBP)) %>%
+  # Ensure only individuals with data in all 3 periods are included
+  group_by(RANDID) %>%
+  filter(n() == 3) %>%
+  ungroup() %>%
+  anova_test(dv = SYSBP, wid = RANDID, within = PERIOD)
+
+get_anova_table(anova_res)
+```
+
+```{r}
+# Calculate Mean and SD for each period
+sysbp_summary <- fram_long %>%
+  group_by(PERIOD) %>%
+  summarise(
+    Mean_SYSBP = mean(SYSBP, na.rm = TRUE),
+    SD_SYSBP = sd(SYSBP, na.rm = TRUE),
+    N = n()
+  ) %>%
+  mutate(across(c(Mean_SYSBP, SD_SYSBP), round, 2))
+
+# Create the Flextable
+ft_sysbp_summary <- sysbp_summary %>%
+  flextable() %>%
+  set_header_labels(
+    PERIOD = "Exam Period",
+    Mean_SYSBP = "Mean SBP (mmHg)",
+    SD_SYSBP = "Std. Deviation",
+    N = "Sample Size (N)"
+  ) %>%
+  set_caption("Mean and Standard Deviation of Systolic BP across Periods") %>%
+  theme_vanilla() %>%
+  autofit()
+
+ft_sysbp_summary
+```
+
+```{r}
+sysbp_summary <- fram_long %>%
+  group_by(PERIOD) %>%
+  summarise(
+    Mean_SYSBP = mean(SYSBP, na.rm = TRUE),
+    SD_SYSBP = sd(SYSBP, na.rm = TRUE)
+  ) %>%
+  mutate(
+    label_text = paste0("Mean: ", round(Mean_SYSBP, 1), "\nSD: ", round(SD_SYSBP, 1))
+  )
+
+# Create the Plot
+ggplot(fram_long, aes(x = factor(PERIOD), y = SYSBP, fill = factor(PERIOD))) +
+  geom_boxplot(outlier.alpha = 0.2, color = "gray30") +
+  # Add Mean
+  stat_summary(fun = mean, geom = "point", shape = 18, size = 4, color = "darkblue") +
+  # Add Labels
+  geom_text(data = sysbp_summary, 
+            aes(x = factor(PERIOD), y = Mean_SYSBP, label = label_text),
+            vjust = -1.5,
+            fontface = "bold",
+            size = 3.5) +
+  theme_minimal() +
+  labs(
+    title = "Figure 1. Systolic BP Trends with Mean and SD Labels",
+    #subtitle = "Comparing population shifts across three examination periods",
+    x = "Examination Period",
+    y = "Systolic BP (mmHg)"
+  ) +
+  scale_fill_manual(values = c("1" = "#69b3a2", "2" = "orange", "3" = "firebrick")) +
+  theme(legend.position = "none") +
+  ylim(min(fram_long$SYSBP, na.rm=T), max(fram_long$SYSBP, na.rm=T) + 10)
+```
+
+```{r}
+# Select a random subset of 100 subjects
+set.seed(123)
+sample_ids <- sample(unique(fram_long$RANDID), 100)
+
+# Draw the trajectory plot
+ggplot(filter(fram_long, RANDID %in% sample_ids), 
+  aes(x = factor(PERIOD), y = SYSBP, group = RANDID)) +
+  # Individual trajectory lines
+  geom_line(alpha = 0.2, color = "gray40") + 
+  geom_point(alpha = 0.2, color = "gray40") +
+  # Bold population mean line
+  stat_summary(aes(group = 1), fun = mean, geom = "line", color = "firebrick", size = 1.3) +
+  stat_summary(aes(group = 1), fun = mean, geom = "point", color = "firebrick", size = 3) +
+  theme_minimal() +
+  labs(title = "Individual Trajectories of Systolic Blood Pressure",
+       subtitle = "Individual trends (n=100) with population mean overlay (red)",
+       x = "Examination Period",
+       y = "Systolic BP (mmHg)")
+```
+
 \pagebreak
 
 ## Code Appendix
