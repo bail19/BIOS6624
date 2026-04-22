@@ -13,7 +13,7 @@ library(tidyverse)
 library(tableone)
 library(flextable)
 library(survminer) # For KM curve
-library(MASS) # For stepAIC (Backward Selection)
+library(MASS)
 library(broom)
 library(ggplot2)
 ```
