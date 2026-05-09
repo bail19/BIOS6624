@@ -1,0 +1,48 @@
+---
+title: "Project 4"
+author: "Lu Bai"
+date: "2026-05-04"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#remotes::install_github("pbreheny/hdrm")
+library(hdrm)    # For data generation
+library(glmnet)  # For Lasso and Elastic Net
+library(MASS)    # For AIC/BIC/Backward selection
+library(dplyr)
+```
+
+## Simulation Setup: Parameters
+
+```{r}
+# Simulation setup: define parameters
+# For reproducibility
+set.seed(2026) 
+iterations <- 100
+n_vals <- c(250, 500)
+rho_vals <- c(0, 0.35, 0.7)
+p_total <- 20
+p_active <- 5
+# Define the beta vector
+true_beta <- c(0.5/3, 1/3, 1.5/3, 2/3, 2.5/3, rep(0, 15))
+```
+
+## Data generation wrapper
+```{r}
+# Data generation wrapper
+generate_sim_data <- function(n_size, rho_val) {
+  data_obs <- gen_data(
+    n = n_size, 
+    p = p_total,
+    p1 = p_active,
+    beta = true_beta, 
+    family = "gaussian", # Linear regression
+    corr = "exch", # Use exchangeable correlation structure
+    rho = rho_val
+  )
+  return(data_obs)
+}
+```
+
