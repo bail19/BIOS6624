@@ -46,3 +46,66 @@ generate_sim_data <- function(n_size, rho_val) {
 }
 ```
 
+## Wrapper to evaluate performance for each method
+```{r}
+# Wrapper to evaluate performance for each method
+evaluate_method <- function(selected_indices, X, y, true_beta) {
+  p <- p_total
+  active_idx <- 1:p_active
+  noise_idx <- (p_active+1):p_total
+  
+  # Selection accuracy metrics (TPR/FPR) 
+  tpr <- mean(active_idx %in% selected_indices)
+  fpr <- mean(noise_idx %in% selected_indices)
+  
+  # Setup results for bias and coverage 
+  # Non-selected variables are treated as estimates of zero
+  betas_hat <- rep(0, p)
+  coverage <- rep(0, p)
+  type_i_err <- rep(0, p)
+  type_ii_err <- rep(0, p)
+  
+  # Refit selected model for inference
+  if (length(selected_indices) > 0) {
+    # Refit the final selected model 
+    X_sub <- X[, selected_indices, drop = FALSE]
+    refit_mod <- lm(y ~ X_sub)
+    
+    # Extract coefficients and CIs (excluding intercept)
+    refit_coefs <- coef(refit_mod)[-1]
+    refit_ci <- confint(refit_mod)[-1, , drop = FALSE]
+    refit_pvals <- summary(refit_mod)$coefficients[-1, 4]
+    
+    betas_hat[selected_indices] <- refit_coefs
+    
+    # coverage and errors for selected variables 
+    for (j in seq_along(selected_indices)) {
+      idx <- selected_indices[j]
+      # 95% CI Coverage
+      if (true_beta[idx] >= refit_ci[j, 1] && true_beta[idx] <= refit_ci[j, 2]) {
+        coverage[idx] <- 1
+      }
+      # Type I Error
+      if (idx > 5 && refit_pvals[j] < 0.05) type_i_err[idx] <- 1
+      # Type II Error
+      if (idx <= 5 && refit_pvals[j] >= 0.05) type_ii_err[idx] <- 1
+    }
+  }
+  # Non-selected variables: estimate=0, no interval 
+  unselected_idx <- setdiff(1:p, selected_indices)
+  for (idx in unselected_idx) {
+    # Coverage is 0 if it should be selected but didn't
+    coverage[idx] <- ifelse(true_beta[idx] == 0, 1, 0)
+    # If not selected, we didn't reject H0; Type II error if true_beta != 0
+    if (idx <= 5) type_ii_err[idx] <- 1
+  }
+  
+  bias <- betas_hat - true_beta
+  
+  return(c(TPR = tpr, FPR = fpr, 
+           Bias_Avg = mean(bias), 
+           Coverage_Avg = mean(coverage),
+           TypeI_Avg = mean(type_i_err[6:20]),
+           TypeII_Avg = mean(type_ii_err[1:5])))
+}
+```
