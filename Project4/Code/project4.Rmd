@@ -109,3 +109,65 @@ evaluate_method <- function(selected_indices, X, y, true_beta) {
            TypeII_Avg = mean(type_ii_err[1:5])))
 }
 ```
+
+## Main simulation loop
+```{r}
+# Storage for results
+all_results <- list() #data.frame()
+
+# Simulation Loops
+for (N in n_vals) {
+  for (rho in rho_vals) {
+    cat("Running Scenario: N =", N, ", Rho =", rho, "\n")
+    scenario_results <- matrix(NA, nrow = iterations * 7, ncol = 8)
+    colnames(scenario_results) <- c("Iter", "Method", "TPR", "FPR", "Bias", "Coverage", "TypeI", "TypeII")
+    
+    for (i in 1:iterations) {
+      # Generate data 
+      sim_data <- generate_sim_data(N, rho)
+      X <- sim_data$X
+      y <- sim_data$y
+      data_df <- data.frame(y, X)
+      
+      # Method 1: Backward Selection p-value = 0.05
+      full_mod <- lm(y ~ ., data = data_df)
+      back_fit <- step(full_mod, direction = "backward", trace = 0, 
+                       k = qchisq(0.05, 1, lower.tail = FALSE))
+      
+      # Method 2 & 3: AIC & BIC
+      aic_mod <- step(full_mod, direction = "backward", trace = 0, k = 2)
+      bic_mod <- step(full_mod, direction = "backward", trace = 0, k = log(N))
+      
+      # Method 4 & 5: Lasso & Elastic Net
+      # Cross-validation for tuning parameters lambda.min and lambda.1se
+      cv_lasso <- cv.glmnet(X, y, alpha = 1)
+      cv_enet  <- cv.glmnet(X, y, alpha = 0.5)
+      
+      # Helper to get indices
+      get_idx <- function(m) as.numeric(gsub("V", "", names(coef(m))[-1]))
+      get_pen_idx <- function(cv, s) which(as.vector(coef(cv, s=s))[-1] != 0)
+      
+      # Extract coefficients and evaluation for all senarios
+      methods_list <- list(
+        "Backward p-value" = get_idx(back_fit),
+        "Backward AIC" = get_idx(aic_mod),
+        "Backward BIC" = get_idx(bic_mod),
+        "Lasso_min" = get_pen_idx(cv_lasso, "lambda.min"),
+        "Lasso_1se" = get_pen_idx(cv_lasso, "lambda.1se"),
+        "ENet_min"  = get_pen_idx(cv_enet, "lambda.min"),
+        "ENet_1se"  = get_pen_idx(cv_enet, "lambda.1se")
+      )
+
+      # Map results into temporary scenario matrix
+      for (m_idx in seq_along(methods_list)) {
+        res <- evaluate_method(methods_list[[m_idx]], X, y, true_beta)
+        row_pos <- (i-1)*7 + m_idx
+        scenario_results[row_pos, ] <- c(i, names(methods_list)[m_idx], res)
+      }
+    }
+    # Store scenario aggregate
+    all_results[[paste0("N", N, "_R", rho)]] <- as.data.frame(scenario_results)
+  }
+}
+```
+
