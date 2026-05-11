@@ -106,7 +106,9 @@ evaluate_method <- function(selected_indices, X, y, true_beta) {
            Bias_Avg = mean(bias), 
            Coverage_Avg = mean(coverage),
            TypeI_Avg = mean(type_i_err[6:20]),
-           TypeII_Avg = mean(type_ii_err[1:5])))
+           TypeII_Avg = mean(type_ii_err[1:5]),
+           # Return vector of estimates and CI bounds for X1-X6
+           Est = betas_hat[1:6]))
 }
 ```
 
@@ -114,6 +116,9 @@ evaluate_method <- function(selected_indices, X, y, true_beta) {
 ```{r}
 # Storage for results
 all_results <- list() #data.frame()
+
+# Starting time
+start_time <- Sys.time()
 
 # Simulation Loops
 for (N in n_vals) {
@@ -160,14 +165,30 @@ for (N in n_vals) {
 
       # Map results into temporary scenario matrix
       for (m_idx in seq_along(methods_list)) {
-        res <- evaluate_method(methods_list[[m_idx]], X, y, true_beta)
+        selected <- methods_list[[m_idx]]
+        # Create a string of selected variables
+        vars_string <- paste(sort(selected), collapse = ",")
+        
+        res <- evaluate_method(selected, X, y, true_beta)
         row_pos <- (i-1)*7 + m_idx
-        scenario_results[row_pos, ] <- c(i, names(methods_list)[m_idx], res)
+        
+        # Store results: Iter, method, selected_vars, metrics
+        scenario_results[row_pos, ] <- c(i, names(methods_list)[m_idx], vars_string, res)
       }
     }
     # Store scenario aggregate
     all_results[[paste0("N", N, "_R", rho)]] <- as.data.frame(scenario_results)
   }
 }
+
+# Ending time
+end_time <- Sys.time()
+
+# Time taken
+time_taken <- end_time - start_time
+time_taken
 ```
 
+```{r}
+save.image(file = "~/Downloads/project4_simresults.RData")
+```
