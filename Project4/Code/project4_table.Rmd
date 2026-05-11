@@ -1,0 +1,133 @@
+---
+title: "Project 4_table"
+author: "Lu Bai"
+date: "2026-05-10"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(flextable)
+```
+
+## Load results
+
+```{r}
+load("~/Downloads/project4_simresults.RData")
+```
+
+## Generate Table
+```{r}
+tab_df <- bind_rows(all_results, .id = "Scenario") %>%
+  # Ensure metrics are numeric for calculation
+  mutate(across(c(TPR:Est_X6), as.numeric)) %>%
+  group_by(Scenario, Method) %>%
+  summarise(
+    # Calculate the mean for all performance metrics
+    across(c(TPR:Est_X6), mean, na.rm = TRUE),
+    
+    # Logic for summarizing Selected Variables:
+    # Identify which variables appeared most often across the 10,000 iterations
+    Commonly_Selected = {
+      # Split strings, unlist to individual variable IDs, and count frequencies
+      all_vars <- unlist(strsplit(as.character(Selected_Vars), ","))
+      all_vars <- all_vars[all_vars != "" & !is.na(all_vars)]
+      
+      if(length(all_vars) == 0) {
+        "None"
+      } else {
+        var_counts <- sort(table(all_vars), decreasing = TRUE)
+        # Keep variables selected in more than 50% of the iterations
+        top_vars <- names(var_counts[var_counts > (iterations / 2)])
+        paste(sort(as.numeric(top_vars)), collapse = ",")
+      }
+    },
+    .groups = 'drop'
+  )
+
+# Reorder columns
+tab_df <- tab_df %>% 
+  relocate(Scenario, Method, Commonly_Selected)
+
+# Identify the 5 largest and 5 smallest coverage methods
+top_5_cov <- tab_df %>% slice_max(order_by = Coverage, n = 5)
+bot_5_cov <- tab_df %>% slice_min(order_by = Coverage, n = 5)
+
+# Combine for the final 10-row subset
+selected_methods <- bind_rows(top_5_cov, bot_5_cov) %>%
+  arrange(desc(Coverage))
+
+# Table1: performance metrics
+table1_ft <- selected_methods %>%
+  select(Scenario, Method, Commonly_Selected, TPR, FPR, Bias, Coverage, TypeI, TypeII) %>%
+  flextable() %>%
+  set_header_labels(
+    Commonly_Selected = "Commonly Selected Variables (>50%)",
+    Bias = "Mean Bias",
+    Coverage = "95% CI Coverage",
+    TypeI = "Type I Error",
+    TypeII = "Type II Error"
+  ) %>%
+  colformat_double(digits = 3) %>%
+  set_caption("Table 1: Selection Performance Metrics for Methods with Extreme Coverage") %>%
+  theme_vanilla() %>%
+  autofit()
+
+table1_ft
+
+# Table2: coefficients estimates
+# Extract the estimate
+table2_data <- selected_methods %>%
+  mutate(
+    # Extract the estimate
+    across(starts_with("Est_X"), ~ sprintf("%.3f", .x))
+  ) %>%
+  # Select the scenario, method, and variables X1-X6
+  select(Scenario, Method, Commonly_Selected, Est_X1, Est_X2, Est_X3, Est_X4, Est_X5, Est_X6)
+
+table2_ft <- table2_data %>%
+  flextable() %>%
+  set_header_labels(
+    Commonly_Selected = "Commonly Selected Variables (>50%)",
+    Est_X1 = "X1 (β=0.167)",
+    Est_X2 = "X2 (β=0.333)",
+    Est_X3 = "X3 (β=0.500)",
+    Est_X4 = "X4 (β=0.667)",
+    Est_X5 = "X5 (β=0.833)",
+    Est_X6 = "X6 (β=0.000)"
+  ) %>%
+  set_caption("Table 2: Mean Coefficient Estimates for Selected Methods") %>%
+  theme_vanilla() %>%
+  autofit()
+
+table2_ft
+```
+
+```{r}
+# Identify the 5 largest and 5 smallest TypeI methods
+top_5_type1 <- tab_df %>% slice_max(order_by = TypeI, n = 5)
+paste0(top_5_type1$Scenario, top_5_type1$Method)
+bot_5_type1 <- tab_df %>% slice_min(order_by = TypeI, n = 5)
+paste0(bot_5_type1$Scenario, bot_5_type1$Method)
+
+# Identify the 5 largest and 5 smallest TypeII methods
+top_5_type2 <- tab_df %>% slice_max(order_by = TypeII, n = 5)
+paste0(top_5_type2$Scenario, top_5_type2$Method)
+bot_5_type2 <- tab_df %>% slice_min(order_by = TypeII, n = 5)
+paste0(bot_5_type2$Scenario, bot_5_type2$Method)
+
+# Identify the 5 largest and 5 smallest TPR methods
+top_5_TPR <- tab_df %>% slice_max(order_by = TPR, n = 5)
+paste0(top_5_TPR$Scenario, top_5_TPR$Method)
+bot_5_TPR <- tab_df %>% slice_min(order_by = TPR, n = 5)
+paste0(bot_5_TPR$Scenario, bot_5_TPR$Method)
+
+# Identify the 5 largest and 5 smallest FPR methods
+top_5_FPR <- tab_df %>% slice_max(order_by = FPR, n = 5)
+paste0(top_5_FPR$Scenario, top_5_FPR$Method)
+bot_5_FPR <- tab_df %>% slice_min(order_by = FPR, n = 5)
+paste0(bot_5_FPR$Scenario, bot_5_FPR$Method)
+
+```
+
