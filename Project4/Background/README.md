@@ -1,1 +1,5 @@
 # BIOS6624
+This project provides:
+	• a simulation study investigating the performance of five common variable selection techniques: Automated backward selection based on p-values, common backward selection using Akaike Information Criterion (AIC) or Bayesian Information Criterion (BIC), and Lasso regression and Elastic Net regression, in the context of linear regression. 
+	• evaluation of which methods provide the most robust selection and accurate parameter estimation across distinct simulation scenarios and how these algorithms perform under varying conditions of sample sizes and inter-variable correlation structures. 
+	• examination of algorithm's ability to identify true predictors while controlling for noise based on quantification of performance metrics, including the inferential bias, Type I and Type II error introduced by the selection process itself.
