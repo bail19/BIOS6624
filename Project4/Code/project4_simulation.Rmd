@@ -20,7 +20,7 @@ library(dplyr)
 # Simulation setup: define parameters
 # For reproducibility
 set.seed(2026) 
-iterations <- 100
+iterations <- 10000
 n_vals <- c(250, 500)
 rho_vals <- c(0, 0.35, 0.7)
 p_total <- 20
@@ -124,8 +124,8 @@ start_time <- Sys.time()
 for (N in n_vals) {
   for (rho in rho_vals) {
     cat("Running Scenario: N =", N, ", Rho =", rho, "\n")
-    scenario_results <- matrix(NA, nrow = iterations * 7, ncol = 8)
-    colnames(scenario_results) <- c("Iter", "Method", "TPR", "FPR", "Bias", "Coverage", "TypeI", "TypeII")
+    scenario_results <- matrix(NA, nrow = iterations * 7, ncol = 15)
+    colnames(scenario_results) <- c("Iter", "Method", "Selected_Vars", "TPR", "FPR", "Bias", "Coverage", "TypeI", "TypeII", paste0("Est_X", 1:6))
     
     for (i in 1:iterations) {
       # Generate data 

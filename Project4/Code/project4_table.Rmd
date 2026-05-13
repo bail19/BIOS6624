@@ -104,6 +104,7 @@ table2_ft <- table2_data %>%
 table2_ft
 ```
 
+## Identify specific algorithms given metrics
 ```{r}
 # Identify the 5 largest and 5 smallest TypeI methods
 top_5_type1 <- tab_df %>% slice_max(order_by = TypeI, n = 5)
